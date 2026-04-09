@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Bulk generate AI explainer videos — paste all scenes at once and render in one click." />
+    <title>ExplainerAI — Bulk Mode</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <!-- ─── Ambient Background ─── -->
+    <div class="ambient-bg">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <!-- ─── Header ─── -->
+    <header id="app-header">
+        <div class="header-inner">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 32 32" fill="none">
+                        <rect x="2" y="4" width="28" height="24" rx="4" stroke="url(#lg1)" stroke-width="2.5"/>
+                        <polygon points="13,11 13,21 22,16" fill="url(#lg1)"/>
+                        <defs><linearGradient id="lg1" x1="0" y1="0" x2="32" y2="32"><stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#06b6d4"/></linearGradient></defs>
+                    </svg>
+                </div>
+                <h1>ExplainerAI</h1>
+            </div>
+            <nav class="main-nav">
+                <a href="/" class="nav-tab" id="nav-editor">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                    Editor
+                </a>
+                <a href="/bulk" class="nav-tab active" id="nav-bulk">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                    Bulk Mode
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- ─── Main ─── -->
+    <main id="app-main">
+        <!-- ─── Step Indicator ─── -->
+        <div class="wizard-steps" id="wizard-steps">
+            <div class="wizard-step active" data-step="1"><span class="ws-num">1</span><span class="ws-label">Settings</span></div>
+            <div class="wizard-connector"></div>
+            <div class="wizard-step" data-step="2"><span class="ws-num">2</span><span class="ws-label">Script</span></div>
+            <div class="wizard-connector"></div>
+            <div class="wizard-step" data-step="3"><span class="ws-num">3</span><span class="ws-label">Preview</span></div>
+            <div class="wizard-connector"></div>
+            <div class="wizard-step" data-step="4"><span class="ws-num">4</span><span class="ws-label">Generate</span></div>
+        </div>
+
+        <!-- ═══ STEP 1: Settings ═══ -->
+        <section class="bulk-step glass" id="step-1">
+            <h2>Project Settings</h2>
+            <p class="step-desc">Configure the global settings for your bulk video generation.</p>
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label" for="bulk-project-name">Project Name</label>
+                    <input type="text" class="form-input" id="bulk-project-name" placeholder="My Video Project" value="Bulk Video" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Orientation</label>
+                    <div class="orientation-toggle" id="bulk-orient-toggle">
+                        <button class="orient-btn active" data-orient="landscape" title="1920×1080">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/></svg>
+                            Landscape
+                        </button>
+                        <button class="orient-btn" data-orient="portrait" title="1080×1920">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/></svg>
+                            Portrait
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="bulk-voice">Default Voice</label>
+                    <select class="form-select" id="bulk-voice"></select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Image Source</label>
+                    <div class="radio-group" id="bulk-image-source">
+                        <label class="radio-card active" data-src="ai">
+                            <input type="radio" name="img-src" value="ai" checked />
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                            <span>AI Generated</span>
+                            <small>Images created from prompts</small>
+                        </label>
+                        <label class="radio-card" data-src="upload">
+                            <input type="radio" name="img-src" value="upload" />
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <span>Upload Own</span>
+                            <small>Use the Editor page to upload</small>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group full-width">
+                    <label class="form-label" for="bulk-template-select">Quick Start Template</label>
+                    <div class="template-select-row">
+                        <select class="form-select" id="bulk-template-select">
+                            <option value="">— No template —</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline" id="btn-load-template">Load Template</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-nav">
+                <div></div>
+                <button class="btn btn-primary" id="btn-to-step-2">Continue to Script →</button>
+            </div>
+        </section>
+
+        <!-- ═══ STEP 2: Script ═══ -->
+        <section class="bulk-step glass hidden" id="step-2">
+            <h2>Paste Your Script</h2>
+            <p class="step-desc">Separate each scene with <code>---</code> on its own line. Optionally add an image prompt per scene using <code>[IMAGE: your prompt here]</code> on its own line within the scene block.</p>
+
+            <div class="script-example glass">
+                <strong>Example:</strong>
+                <pre>Welcome to our product tour. Today we'll explore the amazing features.
+[IMAGE: A professional product showcase, modern studio lighting]
+---
+The first feature is blazing fast performance.
+[IMAGE: A speedometer breaking maximum speed, futuristic cyber theme]
+---
+Thank you for watching! Subscribe for more.
+[IMAGE: Colorful subscribe button with confetti celebration]</pre>
+            </div>
+
+            <textarea class="bulk-textarea" id="bulk-script" rows="16" placeholder="Paste all your scenes here, separated by ---"></textarea>
+
+            <div class="step-nav">
+                <button class="btn btn-secondary" id="btn-back-to-1">← Settings</button>
+                <button class="btn btn-primary" id="btn-to-step-3">Preview Scenes →</button>
+            </div>
+        </section>
+
+        <!-- ═══ STEP 3: Preview ═══ -->
+        <section class="bulk-step glass hidden" id="step-3">
+            <h2>Preview & Customize Scenes</h2>
+            <p class="step-desc">Review parsed scenes. Adjust animation and transition for each, or tweak narration and image prompts.</p>
+
+            <div id="bulk-preview-list" class="bulk-preview-list"></div>
+
+            <div class="step-nav">
+                <button class="btn btn-secondary" id="btn-back-to-2">← Edit Script</button>
+                <button class="btn btn-primary" id="btn-to-step-4">Generate Video →</button>
+            </div>
+        </section>
+
+        <!-- ═══ STEP 4: Generate ═══ -->
+        <section class="bulk-step glass hidden" id="step-4">
+            <div class="generate-center">
+                <div class="generate-spinner hidden" id="bulk-spinner"></div>
+                <h2 id="bulk-gen-title">Ready to Generate</h2>
+                <p class="step-desc" id="bulk-gen-desc">Click below to auto-generate audio, images, and render your final video in one pipeline.</p>
+
+                <div class="bulk-progress-section hidden" id="bulk-progress-section">
+                    <div class="progress-bar-track">
+                        <div class="progress-bar-fill" id="bulk-progress-bar"></div>
+                    </div>
+                    <p class="bulk-step-label">
+                        <span id="bulk-step-label-main">Initializing…</span><br>
+                        <span class="eta-text" id="bulk-eta" style="display:none;"></span>
+                    </p>
+                </div>
+
+                <button class="btn btn-primary btn-lg" id="btn-start-bulk">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>
+                    Generate Everything
+                </button>
+
+                <a href="#" class="btn btn-primary btn-lg hidden" id="bulk-download-btn">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download Video
+                </a>
+
+                <button class="btn btn-ghost hidden" id="btn-bulk-reset">Start Over</button>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/bulk.js"></script>
+</body>
+</html>

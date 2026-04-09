@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+moviepy
+edge-tts
+requests
+python-multipart
+aiofiles
+aiohttp
