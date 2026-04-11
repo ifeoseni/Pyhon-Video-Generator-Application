@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import numpy as np
+import logging
 from proglog import ProgressBarLogger
 
 from ffmpeg_render import ffmpeg_available, scenes_eligible_for_ffmpeg, render_with_ffmpeg
@@ -362,8 +363,6 @@ def _make_subtitle_clip(text: str, target_w: int, duration: float, font_size: in
     img = PILImage.new("RGBA", (target_w, total_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     margin = int(target_w * 0.05)
-    # semi-opaque bar
-    draw.rectangle([margin, 0, target_w - margin, total_h], fill=(0, 0, 0, 160))
 
     # Draw lines centered
     y = padding
@@ -374,7 +373,7 @@ def _make_subtitle_clip(text: str, target_w: int, duration: float, font_size: in
         y += th + gap
 
     arr = np.array(img)
-    clip = ImageClip(arr).set_duration(duration).set_pos(("center", "bottom"))
+    clip = ImageClip(arr).with_duration(duration).with_position(("center", "bottom"))
     return clip
 
 
@@ -437,11 +436,15 @@ def build_scene_clip(
     # Overlay subtitles when requested
     try:
         if bool(scene.get("show_subtitles")) and scene.get("subtitle"):
-            subtext = str(scene.get("subtitle") or "")
-            if subtext.strip():
-                subclip = _make_subtitle_clip(subtext, target_w, clip.duration)
-                clip = CompositeVideoClip([clip, subclip], size=(target_w, target_h))
-                clip = clip.set_duration(clip.duration)
+                subtext = str(scene.get("subtitle") or "")
+                if subtext.strip():
+                    orig = clip
+                    subclip = _make_subtitle_clip(subtext, target_w, clip.duration)
+                    comp = CompositeVideoClip([orig, subclip], size=(target_w, target_h))
+                    # Preserve audio from the original clip when compositing
+                    if getattr(orig, "audio", None):
+                        comp = comp.with_audio(orig.audio)
+                    clip = comp.with_duration(orig.duration)
     except Exception:
         # Non-fatal: if subtitle rendering fails, continue without subtitles
         pass
@@ -584,20 +587,31 @@ def render_video(
         final = clips[0]
     else:
         composed = [clips[0]]
+        need_negative_padding = False
         for i in range(1, len(clips)):
             transition = scenes[i].get("transition", "crossfade")
+            prev = composed[-1]
+            curr = clips[i]
             if transition == "none":
-                composed.append(clips[i])
+                composed.append(curr)
+            elif transition in ("slide_left", "slide_right", "wipe_down"):
+                parts = _apply_transition(prev, curr, transition, trans_dur)
+                # replace last with the first returned part and append any remaining parts
+                composed[-1] = parts[0]
+                if len(parts) > 1:
+                    composed.extend(parts[1:])
             else:
-                clips[i] = clips[i].with_effects([vfx.CrossFadeIn(trans_dur)])
-                composed.append(clips[i])
+                # Use crossfade style (works for crossfade, fade_black and other simple fades)
+                need_negative_padding = True
+                prev = prev.with_effects([vfx.CrossFadeOut(trans_dur)])
+                curr = curr.with_effects([vfx.CrossFadeIn(trans_dur)])
+                composed[-1] = prev
+                composed.append(curr)
 
         final = concatenate_videoclips(
             composed,
             method="compose",
-            padding=-trans_dur
-            if any(s.get("transition", "crossfade") != "none" for s in scenes[1:])
-            else 0,
+            padding=-trans_dur if need_negative_padding else 0,
         )
 
     if progress_callback:
@@ -611,6 +625,36 @@ def render_video(
     ffmpeg_params = ["-crf", crf] + ffmpeg_params
 
     vid_logger = _WriteProgressLogger(progress_callback) if progress_callback else None
+
+    # MoviePy: overlay logo when ffmpeg path isn't used
+    if logo_path and os.path.isfile(logo_path):
+        try:
+            logo_clip = ImageClip(logo_path).with_duration(final.duration)
+            # Scale logo if it's too wide
+            max_logo_w = int(final.w * 0.18)
+            if getattr(logo_clip, "w", 0) > max_logo_w:
+                logo_clip = logo_clip.resized(width=max_logo_w)
+
+            def _pos_for(position: str):
+                if position == "bottom-right":
+                    return lambda t: (final.w - logo_clip.w - 10, final.h - logo_clip.h - 10)
+                if position == "bottom-left":
+                    return lambda t: (10, final.h - logo_clip.h - 10)
+                if position == "top-left":
+                    return lambda t: (10, 10)
+                if position == "top-right":
+                    return lambda t: (final.w - logo_clip.w - 10, 10)
+                if position == "center":
+                    return lambda t: ((final.w - logo_clip.w) // 2, (final.h - logo_clip.h) // 2)
+                return lambda t: (final.w - logo_clip.w - 10, final.h - logo_clip.h - 10)
+
+            pos_fn = _pos_for(logo_position)
+            comp = CompositeVideoClip([final, logo_clip.with_position(pos_fn)], size=(final.w, final.h))
+            if getattr(final, "audio", None):
+                comp = comp.with_audio(final.audio)
+            final = comp
+        except Exception:
+            logging.exception("Failed to overlay logo via MoviePy")
 
     final.write_videofile(
         output_path,

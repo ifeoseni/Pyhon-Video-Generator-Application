@@ -392,13 +392,24 @@ def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str, 
         def progress_cb(pct: int):
             render_jobs[job_id]["progress"] = int(pct)
 
-        # Map public logo URL to filesystem path for ffmpeg to read.
+        # Map public logo URL to filesystem path for ffmpeg/moviepy to read.
         logo_path_fs = None
         try:
-            if logo_url and logo_url.startswith("/static/"):
-                logo_path_fs = str((BASE_DIR / logo_url.lstrip("/"))).replace("\\", "/")
-                if not (BASE_DIR / logo_url.lstrip("/")).exists():
-                    logo_path_fs = None
+            if logo_url:
+                lu = logo_url.lstrip("/")
+                # common returned value: /static/uploads/<file>
+                if logo_url.startswith("/static/") or logo_url.startswith("static/"):
+                    p = BASE_DIR / lu
+                    if p.exists():
+                        logo_path_fs = str(p.resolve()).replace("\\", "/")
+                # absolute filesystem path provided
+                elif os.path.isabs(logo_url) and os.path.exists(logo_url):
+                    logo_path_fs = logo_url
+                else:
+                    # try relative to project root
+                    p = BASE_DIR / logo_url
+                    if p.exists():
+                        logo_path_fs = str(p.resolve()).replace("\\", "/")
         except Exception:
             logo_path_fs = None
 

@@ -25,6 +25,8 @@
   const projectNameInput = document.getElementById("project-name");
   const logoUploadInput = document.getElementById("logo-upload-input");
   const logoPositionSelect = document.getElementById("logo-position-select");
+  const btnRemoveLogo = document.getElementById("btn-remove-logo");
+  const logoUploadText = document.getElementById("logo-upload-text");
 
   // Guide
   const btnGuide = document.getElementById("btn-guide");
@@ -148,6 +150,8 @@
           if (!res.ok) throw new Error("Logo upload failed");
           const data = await res.json();
           globalLogoUrl = data.url;
+          if (logoUploadText) logoUploadText.textContent = "Logo Ready";
+          if (btnRemoveLogo) btnRemoveLogo.classList.remove("hidden");
           showToast(
             "Logo uploaded! It will appear on the final render.",
             "success",
@@ -155,6 +159,16 @@
         } catch (e) {
           showToast(e.message || "Logo upload failed.", "error");
         }
+      });
+    }
+
+    if (btnRemoveLogo) {
+      btnRemoveLogo.addEventListener("click", () => {
+        globalLogoUrl = null;
+        logoUploadInput.value = "";
+        if (logoUploadText) logoUploadText.textContent = "Upload Logo";
+        btnRemoveLogo.classList.add("hidden");
+        showToast("Logo removed.", "info");
       });
     }
   }

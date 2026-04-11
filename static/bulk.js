@@ -186,6 +186,8 @@
                 index: i,
                 narration: narration.join("\n").trim(),
                 image_prompt: imagePrompt,
+                subtitle: "",
+                show_subtitles: false,
                 animation: "ken_burns",
                 transition: i === 0 ? "none" : "crossfade",
                 volume: 1.0,
@@ -233,6 +235,14 @@
                                 <audio controls src="${s.audio_url}" class="preview-audio" style="width:100%; height:32px;"></audio>
                             </div>
                         ` : ''}
+
+                        <div class="subtitle-row" style="margin-top: 0.6rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <label class="audio-mute-label" style="margin: 0;">
+                                <input type="checkbox" class="bpi-show-subs" ${s.show_subtitles ? "checked" : ""} />
+                                <span>Subtitles</span>
+                            </label>
+                            <input type="text" class="bpi-subtitle" value="${s.subtitle || ""}" placeholder="Subtitle override (auto-detects narration)" style="flex: 1; padding: 0.3rem 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white; font-size: 0.82rem;" />
+                        </div>
                     </div>
                     <div class="bpi-col">
                         <label class="setting-label">Visual Content</label>
@@ -443,6 +453,8 @@
                 parsedScenes[i].transition = item.querySelector(".bpi-transition").value;
                 parsedScenes[i].volume = parseInt(item.querySelector(".bpi-volume").value) / 100;
                 parsedScenes[i].mute_audio = item.querySelector(".bpi-mute").checked;
+                parsedScenes[i].show_subtitles = item.querySelector(".bpi-show-subs").checked;
+                parsedScenes[i].subtitle = item.querySelector(".bpi-subtitle").value.trim();
             }
         });
     }
@@ -471,6 +483,8 @@
                 transition: s.transition,
                 volume: s.volume,
                 mute_audio: s.mute_audio,
+                show_subtitles: s.show_subtitles,
+                subtitle: s.subtitle,
             })),
         };
 
