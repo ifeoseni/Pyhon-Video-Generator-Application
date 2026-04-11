@@ -1,299 +1,672 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Create stunning AI-powered explainer videos with free voiceovers and AI-generated images. No watermarks, no subscriptions." />
+    <meta
+      name="description"
+      content="Create stunning AI-powered explainer videos with free voiceovers and AI-generated images. No watermarks, no subscriptions."
+    />
     <title>ExplainerAI — Scene Editor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/static/style.css" />
-</head>
-<body>
+  </head>
+  <body>
     <!-- ─── Ambient Background ─── -->
     <div class="ambient-bg">
-        <div class="orb orb-1"></div>
-        <div class="orb orb-2"></div>
-        <div class="orb orb-3"></div>
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
     </div>
 
     <!-- ─── Header ─── -->
     <header id="app-header">
-        <div class="header-inner">
-            <div class="logo">
-                <div class="logo-icon">
-                    <svg viewBox="0 0 32 32" fill="none">
-                        <rect x="2" y="4" width="28" height="24" rx="4" stroke="url(#lg1)" stroke-width="2.5"/>
-                        <polygon points="13,11 13,21 22,16" fill="url(#lg1)"/>
-                        <defs>
-                            <linearGradient id="lg1" x1="0" y1="0" x2="32" y2="32">
-                                <stop offset="0%" stop-color="#a78bfa"/>
-                                <stop offset="100%" stop-color="#06b6d4"/>
-                            </linearGradient>
-                        </defs>
-                    </svg>
-                </div>
-                <h1>ExplainerAI</h1>
-            </div>
-            <nav class="main-nav">
-                <a href="/" class="nav-tab active" id="nav-editor">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-                    Editor
-                </a>
-                <a href="/bulk" class="nav-tab" id="nav-bulk">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-                    Bulk Mode
-                </a>
-                <button class="nav-btn" id="btn-guide" title="How to Use">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                    </svg>
-                    Guide
-                </button>
-            </nav>
+      <div class="header-inner">
+        <div class="logo">
+          <div class="logo-icon">
+            <svg viewBox="0 0 32 32" fill="none">
+              <rect
+                x="2"
+                y="4"
+                width="28"
+                height="24"
+                rx="4"
+                stroke="url(#lg1)"
+                stroke-width="2.5"
+              />
+              <polygon points="13,11 13,21 22,16" fill="url(#lg1)" />
+              <defs>
+                <linearGradient id="lg1" x1="0" y1="0" x2="32" y2="32">
+                  <stop offset="0%" stop-color="#a78bfa" />
+                  <stop offset="100%" stop-color="#06b6d4" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <h1>ExplainerAI</h1>
         </div>
+        <nav class="main-nav">
+          <a href="/" class="nav-tab active" id="nav-editor">
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+            </svg>
+            Editor
+          </a>
+          <a href="/bulk" class="nav-tab" id="nav-bulk">
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"
+              />
+              <polyline points="13 2 13 9 20 9" />
+            </svg>
+            Bulk Mode
+          </a>
+          <button class="nav-btn" id="btn-guide" title="How to Use">
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            Guide
+          </button>
+        </nav>
+      </div>
     </header>
 
     <!-- ─── Main Content ─── -->
     <main id="app-main">
-        <!-- ─── Project Bar ─── -->
-        <section class="project-bar glass" id="project-bar">
-            <div class="project-bar-left">
-                <input type="text" class="project-name-input" id="project-name" placeholder="Untitled Project" value="Untitled Project" />
-            </div>
-            <div class="project-bar-right">
-                <div class="orientation-toggle" id="orientation-toggle">
-                    <button class="orient-btn active" data-orient="landscape" title="1920×1080">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/></svg>
-                        Landscape
-                    </button>
-                    <button class="orient-btn" data-orient="portrait" title="1080×1920">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/></svg>
-                        Portrait
-                    </button>
-                </div>
-                <button class="btn btn-sm btn-outline" id="btn-save-project">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                    Save
-                </button>
-                <button class="btn btn-sm btn-outline" id="btn-load-project">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                    Load
-                </button>
-            </div>
-        </section>
+      <!-- ─── Project Bar ─── -->
+      <section class="project-bar glass" id="project-bar">
+        <div class="project-bar-left">
+          <input
+            type="text"
+            class="project-name-input"
+            id="project-name"
+            placeholder="Untitled Project"
+            value="Untitled Project"
+          />
+        </div>
+        <div class="project-bar-right">
+          <div class="orientation-toggle" id="orientation-toggle">
+            <button
+              class="orient-btn active"
+              data-orient="landscape"
+              title="1920×1080"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <rect x="2" y="5" width="20" height="14" rx="2" />
+              </svg>
+              Landscape
+            </button>
+            <button class="orient-btn" data-orient="portrait" title="1080×1920">
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <rect x="5" y="2" width="14" height="20" rx="2" />
+              </svg>
+              Portrait
+            </button>
+          </div>
+          <button class="btn btn-sm btn-outline" id="btn-save-project">
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
+              />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+            Save
+          </button>
+          <button class="btn btn-sm btn-outline" id="btn-load-project">
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+              />
+            </svg>
+            Load
+          </button>
+        </div>
+      </section>
 
-        <!-- ─── Toolbar ─── -->
-        <section class="toolbar glass" id="toolbar">
-            <div class="toolbar-left">
-                <h2>Scenes</h2>
-                <span class="scene-count" id="scene-count">0 scenes</span>
-            </div>
-            <div class="toolbar-right toolbar-render-opts">
-                <label class="toolbar-label" for="render-preset">Export</label>
-                <select class="form-select toolbar-preset-select" id="render-preset" title="Faster presets use 720p and fewer frames per second">
-                    <option value="fast">Fast (720p, quickest)</option>
-                    <option value="balanced" selected>Balanced (1080p)</option>
-                    <option value="high">High quality (slower)</option>
-                </select>
-                <button class="btn btn-secondary" id="btn-add-scene">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Add Scene
-                </button>
-                <button class="btn btn-primary" id="btn-render" disabled>
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5,3 19,12 5,21"/></svg>
-                    Render Video
-                </button>
-            </div>
-        </section>
+      <!-- ─── Toolbar ─── -->
+      <section class="toolbar glass" id="toolbar">
+        <div class="toolbar-left">
+          <h2>Scenes</h2>
+          <span class="scene-count" id="scene-count">0 scenes</span>
+        </div>
+        <div class="toolbar-right toolbar-render-opts">
+          <label class="toolbar-label" for="render-preset">Export</label>
+          <select
+            class="form-select toolbar-preset-select"
+            id="render-preset"
+            title="Faster presets use 720p and fewer frames per second"
+          >
+            <option value="fast">Fast (720p, quickest)</option>
+            <option value="balanced" selected>Balanced (1080p)</option>
+            <option value="high">High quality (slower)</option>
+          </select>
+          <label
+            class="btn btn-sm btn-outline"
+            id="logo-upload-label"
+            style="display: flex; align-items: center; gap: 0.4rem"
+          >
+            Upload Logo
+            <input type="file" id="logo-upload-input" accept="image/*" hidden />
+          </label>
+          <select
+            id="logo-position-select"
+            class="form-select"
+            title="Logo position"
+            style="min-width: 8.5rem"
+          >
+            <option value="bottom-right" selected>Logo: Bottom Right</option>
+            <option value="bottom-left">Logo: Bottom Left</option>
+            <option value="top-right">Logo: Top Right</option>
+            <option value="top-left">Logo: Top Left</option>
+            <option value="center">Logo: Center</option>
+          </select>
+          <button class="btn btn-secondary" id="btn-add-scene">
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add Scene
+          </button>
+          <button class="btn btn-primary" id="btn-render" disabled>
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <polygon points="5,3 19,12 5,21" />
+            </svg>
+            Render Video
+          </button>
+        </div>
+      </section>
 
-        <!-- ─── Scene List ─── -->
-        <section id="scene-list" class="scene-list">
-            <!-- Scenes will be injected here by JS -->
-        </section>
+      <!-- ─── Scene List ─── -->
+      <section id="scene-list" class="scene-list">
+        <!-- Scenes will be injected here by JS -->
+      </section>
 
-        <!-- ─── Empty State ─── -->
-        <section class="empty-state" id="empty-state">
-            <div class="empty-state-inner">
-                <svg viewBox="0 0 80 80" width="80" height="80" fill="none">
-                    <rect x="8" y="14" width="64" height="52" rx="8" stroke="rgba(167,139,250,0.3)" stroke-width="2.5" stroke-dasharray="6 4"/>
-                    <polygon points="32,28 32,52 54,40" fill="rgba(167,139,250,0.15)" stroke="rgba(167,139,250,0.4)" stroke-width="2"/>
-                </svg>
-                <h3>No scenes yet</h3>
-                <p>Click <strong>"Add Scene"</strong> above to start building your explainer video.</p>
-            </div>
-        </section>
+      <!-- ─── Empty State ─── -->
+      <section class="empty-state" id="empty-state">
+        <div class="empty-state-inner">
+          <svg viewBox="0 0 80 80" width="80" height="80" fill="none">
+            <rect
+              x="8"
+              y="14"
+              width="64"
+              height="52"
+              rx="8"
+              stroke="rgba(167,139,250,0.3)"
+              stroke-width="2.5"
+              stroke-dasharray="6 4"
+            />
+            <polygon
+              points="32,28 32,52 54,40"
+              fill="rgba(167,139,250,0.15)"
+              stroke="rgba(167,139,250,0.4)"
+              stroke-width="2"
+            />
+          </svg>
+          <h3>No scenes yet</h3>
+          <p>
+            Click <strong>"Add Scene"</strong> above to start building your
+            explainer video.
+          </p>
+        </div>
+      </section>
     </main>
 
     <!-- ─── Render Overlay ─── -->
     <div class="render-overlay" id="render-overlay">
-        <div class="render-modal glass">
-            <div class="render-spinner"></div>
-            <h3 id="render-status-text">Preparing render…</h3>
-            <div class="progress-bar-track">
-                <div class="progress-bar-fill" id="render-progress-bar"></div>
-            </div>
-            <p class="render-sub" id="render-sub-text">
-                <span class="eta-text" id="render-estimate-line"></span>
-                <span class="eta-text" id="render-eta" style="display:none;"></span><br>
-                <span class="render-hint">Still images render through <strong>FFmpeg</strong> (install FFmpeg and keep it on PATH). Use <strong>Fast</strong> export or <strong>None</strong> animation for the shortest runs.</span>
-            </p>
-            <a href="#" class="btn btn-primary render-download-btn hidden" id="render-download-btn">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Download Video
-            </a>
-            <button class="btn btn-ghost render-close-btn hidden" id="render-close-btn">Close</button>
+      <div class="render-modal glass">
+        <div class="render-spinner"></div>
+        <h3 id="render-status-text">Preparing render…</h3>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="render-progress-bar"></div>
         </div>
+        <p class="render-sub" id="render-sub-text">
+          <span class="eta-text" id="render-estimate-line"></span>
+          <span class="eta-text" id="render-eta" style="display: none"></span
+          ><br />
+          <span class="render-hint"
+            >Still images render through <strong>FFmpeg</strong> (install FFmpeg
+            and keep it on PATH). Use <strong>Fast</strong> export or
+            <strong>None</strong> animation for the shortest runs.</span
+          >
+        </p>
+        <a
+          href="#"
+          class="btn btn-primary render-download-btn hidden"
+          id="render-download-btn"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Download Video
+        </a>
+        <button
+          class="btn btn-ghost render-close-btn hidden"
+          id="render-close-btn"
+        >
+          Close
+        </button>
+      </div>
     </div>
 
     <!-- ─── Guide Modal ─── -->
     <div class="modal-overlay" id="guide-overlay">
-        <div class="modal glass">
-            <button class="modal-close" id="guide-close">&times;</button>
-            <h2>How to Use ExplainerAI</h2>
-            <div class="guide-steps">
-                <div class="guide-step">
-                    <div class="step-num">1</div>
-                    <div><h4>Add Scenes</h4><p>Click <b>"Add Scene"</b> to create scenes. Each scene is one segment of your video.</p></div>
-                </div>
-                <div class="guide-step">
-                    <div class="step-num">2</div>
-                    <div><h4>Write & Voiceover</h4><p>Enter narration text, pick a voice, and click <b>"Generate Audio"</b>. Adjust volume or mute per scene.</p></div>
-                </div>
-                <div class="guide-step">
-                    <div class="step-num">3</div>
-                    <div><h4>Add Visuals</h4><p>Type an image prompt to generate AI art, or upload your own image/video.</p></div>
-                </div>
-                <div class="guide-step">
-                    <div class="step-num">4</div>
-                    <div><h4>Customize Effects</h4><p>Choose an <b>animation</b> (zoom, pan, Ken Burns) and <b>transition</b> (crossfade, slide, wipe) for each scene.</p></div>
-                </div>
-                <div class="guide-step">
-                    <div class="step-num">5</div>
-                    <div><h4>Render & Download</h4><p>Set your orientation (landscape/portrait), then click <b>"Render Video"</b> to produce a final MP4.</p></div>
-                </div>
+      <div class="modal glass">
+        <button class="modal-close" id="guide-close">&times;</button>
+        <h2>How to Use ExplainerAI</h2>
+        <div class="guide-steps">
+          <div class="guide-step">
+            <div class="step-num">1</div>
+            <div>
+              <h4>Add Scenes</h4>
+              <p>
+                Click <b>"Add Scene"</b> to create scenes. Each scene is one
+                segment of your video.
+              </p>
             </div>
+          </div>
+          <div class="guide-step">
+            <div class="step-num">2</div>
+            <div>
+              <h4>Write & Voiceover</h4>
+              <p>
+                Enter narration text, pick a voice, and click
+                <b>"Generate Audio"</b>. Adjust volume or mute per scene.
+              </p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="step-num">3</div>
+            <div>
+              <h4>Add Visuals</h4>
+              <p>
+                Type an image prompt to generate AI art, or upload your own
+                image/video.
+              </p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="step-num">4</div>
+            <div>
+              <h4>Customize Effects</h4>
+              <p>
+                Choose an <b>animation</b> (zoom, pan, Ken Burns) and
+                <b>transition</b> (crossfade, slide, wipe) for each scene.
+              </p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="step-num">5</div>
+            <div>
+              <h4>Render & Download</h4>
+              <p>
+                Set your orientation (landscape/portrait), then click
+                <b>"Render Video"</b> to produce a final MP4.
+              </p>
+            </div>
+          </div>
         </div>
+      </div>
     </div>
 
     <!-- ─── Projects Modal ─── -->
     <div class="modal-overlay" id="projects-overlay">
-        <div class="modal glass" style="width:580px;">
-            <button class="modal-close" id="projects-close">&times;</button>
-            <h2>Load Project</h2>
-            <div id="projects-list-container" class="projects-list"></div>
-            <div class="modal-divider"></div>
-            <h3 class="modal-subtitle">Or Start from Template</h3>
-            <div id="templates-list-container" class="templates-list"></div>
-        </div>
+      <div class="modal glass" style="width: 580px">
+        <button class="modal-close" id="projects-close">&times;</button>
+        <h2>Load Project</h2>
+        <div id="projects-list-container" class="projects-list"></div>
+        <div class="modal-divider"></div>
+        <h3 class="modal-subtitle">Or Start from Template</h3>
+        <div id="templates-list-container" class="templates-list"></div>
+      </div>
     </div>
 
     <!-- ─── Scene Template (hidden) ─── -->
     <template id="scene-template">
-        <article class="scene-card glass" data-scene-id="">
-            <div class="scene-header">
-                <div class="scene-drag-handle" title="Drag to reorder">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-                </div>
-                <h3 class="scene-title">Scene <span class="scene-number">1</span></h3>
-                <div class="scene-badges">
-                    <span class="badge badge-pending" data-badge="audio">
-                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-                        Audio
-                    </span>
-                    <span class="badge badge-pending" data-badge="visual">
-                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                        Visual
-                    </span>
-                </div>
-                <button class="btn-icon scene-delete" title="Delete scene">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                </button>
-            </div>
+      <article class="scene-card glass" data-scene-id="">
+        <div class="scene-header">
+          <div class="scene-drag-handle" title="Drag to reorder">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <circle cx="9" cy="6" r="1.5" />
+              <circle cx="15" cy="6" r="1.5" />
+              <circle cx="9" cy="12" r="1.5" />
+              <circle cx="15" cy="12" r="1.5" />
+              <circle cx="9" cy="18" r="1.5" />
+              <circle cx="15" cy="18" r="1.5" />
+            </svg>
+          </div>
+          <h3 class="scene-title">Scene <span class="scene-number">1</span></h3>
+          <div class="scene-badges">
+            <span class="badge badge-pending" data-badge="audio">
+              <svg
+                viewBox="0 0 24 24"
+                width="12"
+                height="12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+              >
+                <path
+                  d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              </svg>
+              Audio
+            </span>
+            <span class="badge badge-pending" data-badge="visual">
+              <svg
+                viewBox="0 0 24 24"
+                width="12"
+                height="12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+              Visual
+            </span>
+          </div>
+          <button class="btn-icon scene-delete" title="Delete scene">
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path
+                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+              />
+            </svg>
+          </button>
+        </div>
 
-            <div class="scene-body">
-                <!-- ─ Left: Script & Audio ─ -->
-                <div class="scene-panel scene-panel-script">
-                    <label class="panel-label">Narration Script</label>
-                    <textarea class="scene-text" rows="4" placeholder="Type the narration for this scene…"></textarea>
-                    <div class="panel-controls">
-                        <select class="voice-select"></select>
-                        <button class="btn btn-sm btn-accent generate-audio-btn">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-                            Generate Audio
-                        </button>
-                    </div>
-                    <div class="upload-row" style="margin-top: 0.25rem;">
-                        <span class="or-divider">or</span>
-                        <label class="btn btn-sm btn-outline upload-audio-btn">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                            Upload Audio
-                            <input type="file" class="upload-audio-input" accept="audio/*" hidden />
-                        </label>
-                    </div>
-                    <!-- Audio Controls Row -->
-                    <div class="audio-controls-row">
-                        <label class="audio-mute-label">
-                            <input type="checkbox" class="audio-mute-cb" />
-                            <span>Mute audio</span>
-                        </label>
-                        <div class="volume-slider-group">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                            <input type="range" class="volume-slider" min="0" max="200" value="100" step="5" />
-                            <span class="volume-label">100%</span>
-                        </div>
-                    </div>
-                    <div class="audio-preview hidden">
-                        <audio controls class="audio-player"></audio>
-                    </div>
-                </div>
-
-                <!-- ─ Right: Visuals ─ -->
-                <div class="scene-panel scene-panel-visual">
-                    <label class="panel-label">Visual</label>
-                    <div class="image-prompt-row">
-                        <input type="text" class="image-prompt-input" placeholder="Describe the image to generate…" />
-                        <button class="btn btn-sm btn-accent generate-image-btn">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                            Generate
-                        </button>
-                    </div>
-                    <div class="upload-row">
-                        <span class="or-divider">or</span>
-                        <label class="btn btn-sm btn-outline upload-btn">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                            Upload File
-                            <input type="file" class="upload-input" accept="image/*,video/*" hidden />
-                        </label>
-                    </div>
-                    <div class="visual-preview hidden">
-                        <img class="preview-image" alt="Scene visual preview" />
-                        <video class="preview-video hidden" controls></video>
-                    </div>
-                </div>
+        <div class="scene-body">
+          <!-- ─ Left: Script & Audio ─ -->
+          <div class="scene-panel scene-panel-script">
+            <label class="panel-label">Narration Script</label>
+            <textarea
+              class="scene-text"
+              rows="4"
+              placeholder="Type the narration for this scene…"
+            ></textarea>
+            <div class="panel-controls">
+              <select class="voice-select"></select>
+              <button class="btn btn-sm btn-accent generate-audio-btn">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                >
+                  <path
+                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                  />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                </svg>
+                Generate Audio
+              </button>
             </div>
-
-            <!-- ─ Scene Settings Row (animation, transition) ─ -->
-            <div class="scene-settings-row">
-                <div class="setting-group">
-                    <label class="setting-label">Animation</label>
-                    <select class="animation-select"></select>
-                </div>
-                <div class="setting-group">
-                    <label class="setting-label">Transition</label>
-                    <select class="transition-select"></select>
-                </div>
+            <div class="upload-row" style="margin-top: 0.25rem">
+              <span class="or-divider">or</span>
+              <label class="btn btn-sm btn-outline upload-audio-btn">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Upload Audio
+                <input
+                  type="file"
+                  class="upload-audio-input"
+                  accept="audio/*"
+                  hidden
+                />
+              </label>
             </div>
-
-            <!-- Loading overlay for scene actions -->
-            <div class="scene-loading hidden">
-                <div class="scene-loading-spinner"></div>
-                <span class="scene-loading-text">Generating…</span>
+            <!-- Audio Controls Row -->
+            <div class="audio-controls-row">
+              <label class="audio-mute-label">
+                <input type="checkbox" class="audio-mute-cb" />
+                <span>Mute audio</span>
+              </label>
+              <div class="volume-slider-group">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                </svg>
+                <input
+                  type="range"
+                  class="volume-slider"
+                  min="0"
+                  max="200"
+                  value="100"
+                  step="5"
+                />
+                <span class="volume-label">100%</span>
+              </div>
             </div>
-        </article>
+            <div
+              style="
+                margin-top: 0.5rem;
+                display: flex;
+                gap: 0.5rem;
+                align-items: center;
+              "
+            >
+              <label class="audio-mute-label" style="margin: 0">
+                <input type="checkbox" class="subtitles-cb" />
+                <span>Show subtitles</span>
+              </label>
+              <input
+                type="text"
+                class="subtitle-input"
+                placeholder="Optional subtitle override (defaults to narration)"
+                style="
+                  flex: 1;
+                  padding: 0.4rem 0.6rem;
+                  border-radius: 6px;
+                  border: 1px solid #ddd;
+                "
+              />
+            </div>
+            <div class="audio-preview hidden">
+              <audio controls class="audio-player"></audio>
+            </div>
+          </div>
+
+          <!-- ─ Right: Visuals ─ -->
+          <div class="scene-panel scene-panel-visual">
+            <label class="panel-label">Visual</label>
+            <div class="image-prompt-row">
+              <input
+                type="text"
+                class="image-prompt-input"
+                placeholder="Describe the image to generate…"
+              />
+              <button class="btn btn-sm btn-accent generate-image-btn">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+                Generate
+              </button>
+            </div>
+            <div class="upload-row">
+              <span class="or-divider">or</span>
+              <label class="btn btn-sm btn-outline upload-btn">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Upload File
+                <input
+                  type="file"
+                  class="upload-input"
+                  accept="image/*,video/*"
+                  hidden
+                />
+              </label>
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 0.35rem;
+                  margin-left: 0.6rem;
+                "
+              >
+                <input type="checkbox" class="animate-upload-cb" />
+                <span style="color: var(--text-secondary); font-size: 0.82rem"
+                  >Animate image</span
+                >
+              </label>
+            </div>
+            <div class="visual-preview hidden">
+              <img class="preview-image" alt="Scene visual preview" />
+              <video class="preview-video hidden" controls></video>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─ Scene Settings Row (animation, transition) ─ -->
+        <div class="scene-settings-row">
+          <div class="setting-group">
+            <label class="setting-label">Animation</label>
+            <select class="animation-select"></select>
+          </div>
+          <div class="setting-group">
+            <label class="setting-label">Transition</label>
+            <select class="transition-select"></select>
+          </div>
+        </div>
+
+        <!-- Loading overlay for scene actions -->
+        <div class="scene-loading hidden">
+          <div class="scene-loading-spinner"></div>
+          <span class="scene-loading-text">Generating…</span>
+        </div>
+      </article>
     </template>
 
     <script src="/static/app.js"></script>
-</body>
+  </body>
 </html>

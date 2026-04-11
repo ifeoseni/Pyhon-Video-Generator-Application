@@ -1,0 +1,73 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Installer logs
+pip-log.txt
+
+# Pytest cache
+.pytest_cache/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database
+*.sqlite3
+
+# Generated media & working output (do NOT commit user-generated media)
+/cache/
+/output/
+/projects/
+/static/uploads/
+
+# Common media formats (images, video, audio)
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.flv
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.aac
+*.ogg
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+*.tif
+*.tiff
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# Credentials / env files
+.env
+.env.*.local

@@ -298,6 +298,86 @@ def _apply_animation(
     return clip
 
 
+# Helper: robust text measurement (Pillow compatibility)
+def _text_size(draw_obj, text, font_obj):
+    try:
+        return draw_obj.textsize(text, font=font_obj)
+    except Exception:
+        try:
+            bbox = draw_obj.textbbox((0, 0), text, font=font_obj)
+            return (bbox[2] - bbox[0], bbox[3] - bbox[1])
+        except Exception:
+            try:
+                return font_obj.getsize(text)
+            except Exception:
+                return (len(text) * (getattr(font_obj, "size", 16) // 2), getattr(font_obj, "size", 16))
+
+
+def _make_subtitle_clip(text: str, target_w: int, duration: float, font_size: int = 36):
+    """Render subtitles into a transparent ImageClip using PIL and return an ImageClip sized to target_w."""
+    from PIL import Image as PILImage, ImageDraw, ImageFont
+
+    # Try to load a reasonable system font, fallback to default
+    font = None
+    for fpath in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    ]:
+        try:
+            font = ImageFont.truetype(fpath, size=font_size)
+            break
+        except Exception:
+            font = None
+    if font is None:
+        font = ImageFont.load_default()
+
+    # Prepare a drawing surface to measure text
+    measure_img = PILImage.new("RGBA", (target_w, 200), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(measure_img)
+    max_w = int(target_w * 0.9)
+
+    # Simple word-wrap
+    words = str(text).split()
+    lines = []
+    cur = ""
+    for w in words:
+        test = (cur + " " + w).strip()
+        tw, th = _text_size(draw, test, font)
+        if tw <= max_w:
+            cur = test
+        else:
+            if cur:
+                lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+
+    # Height calculations
+    line_heights = [_text_size(draw, l, font)[1] for l in lines] or [font_size]
+    padding = 12
+    gap = 6
+    total_h = sum(line_heights) + (len(lines) - 1) * gap + padding * 2
+
+    # Create subtitle image
+    img = PILImage.new("RGBA", (target_w, total_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    margin = int(target_w * 0.05)
+    # semi-opaque bar
+    draw.rectangle([margin, 0, target_w - margin, total_h], fill=(0, 0, 0, 160))
+
+    # Draw lines centered
+    y = padding
+    for i, line in enumerate(lines):
+        tw, th = _text_size(draw, line, font)
+        x = (target_w - tw) // 2
+        draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
+        y += th + gap
+
+    arr = np.array(img)
+    clip = ImageClip(arr).set_duration(duration).set_pos(("center", "bottom"))
+    return clip
+
+
 # ── Scene Builder ─────────────────────────────────────────────────────────
 
 def build_scene_clip(
@@ -353,6 +433,18 @@ def build_scene_clip(
 
     if audio is not None:
         clip = clip.with_audio(audio)
+
+    # Overlay subtitles when requested
+    try:
+        if bool(scene.get("show_subtitles")) and scene.get("subtitle"):
+            subtext = str(scene.get("subtitle") or "")
+            if subtext.strip():
+                subclip = _make_subtitle_clip(subtext, target_w, clip.duration)
+                clip = CompositeVideoClip([clip, subclip], size=(target_w, target_h))
+                clip = clip.set_duration(clip.duration)
+    except Exception:
+        # Non-fatal: if subtitle rendering fails, continue without subtitles
+        pass
 
     return clip
 
@@ -417,6 +509,9 @@ def render_video(
     fps: int | None = None,
     progress_callback=None,
     preset: str = "balanced",
+    use_hw_accel: bool = False,
+    logo_path: str | None = None,
+    logo_position: str = "bottom-right",
 ) -> str:
     """
     Render the full explainer video from a list of scenes.
@@ -458,6 +553,10 @@ def render_video(
                 eff_fps,
                 pconf,
                 progress_callback,
+                use_hw_accel=use_hw_accel,
+                hw_encoder=None,
+                logo_path=logo_path,
+                logo_position=logo_position,
             )
         except Exception:
             pass

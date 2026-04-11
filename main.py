@@ -2,6 +2,7 @@ import os
 import uuid
 import json
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +38,15 @@ CACHE_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 STATIC_DIR.mkdir(exist_ok=True)
 
+# Log static dir contents for easier debugging when index doesn't load.
+logging.basicConfig(level=logging.INFO)
+try:
+    logging.info("Static dir: %s", STATIC_DIR)
+    for p in STATIC_DIR.iterdir():
+        logging.info("Static file: %s", p.name)
+except Exception:
+    logging.exception("Failed to list static dir")
+
 # ── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(title="AI Video Explainer Generator")
 
@@ -54,13 +64,19 @@ render_jobs: dict[str, dict] = {}
 @app.get("/")
 async def index():
     """Serve the Scene Editor page."""
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    idx = STATIC_DIR / "index.html"
+    if idx.exists():
+        return FileResponse(str(idx))
+    return JSONResponse(content={"error": "index.html not found in static/"}, status_code=404)
 
 
 @app.get("/bulk")
 async def bulk_page():
     """Serve the Bulk Mode page."""
-    return FileResponse(str(STATIC_DIR / "bulk.html"))
+    idx = STATIC_DIR / "bulk.html"
+    if idx.exists():
+        return FileResponse(str(idx))
+    return JSONResponse(content={"error": "bulk.html not found in static/"}, status_code=404)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -165,6 +181,59 @@ async def api_generate_image(
     })
 
 
+@app.post("/api/generate-image-video")
+async def api_generate_image_video(
+    prompt: str = Form(...),
+    scene_id: str = Form(None),
+    width: int = Form(1920),
+    height: int = Form(1080),
+    duration: float = Form(5.0),
+    animation: str = Form("ken_burns"),
+):
+    """Generate an AI image then render a short motion video from it (MP4).
+
+    Returns a `video_url` pointing to `/api/media/{scene_id}/video.mp4`.
+    """
+    if not prompt or not prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt is required.")
+
+    scene_id = scene_id or str(uuid.uuid4())
+    scene_dir = CACHE_DIR / scene_id
+    scene_dir.mkdir(exist_ok=True)
+    image_path = scene_dir / "image.jpg"
+    video_path = scene_dir / "video.mp4"
+
+    try:
+        await generate_prompt_image(prompt.strip(), str(image_path), width=width, height=height)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
+
+    # Determine orientation from dims
+    orientation = "portrait" if height > width else "landscape"
+
+    # Render motion video from the generated image in a thread to avoid blocking
+    loop = asyncio.get_running_loop()
+    scenes = [
+        {
+            "media_path": str(image_path),
+            "media_type": "image",
+            "animation": animation,
+            "duration": float(duration),
+            "volume": 1.0,
+            "mute_audio": True,
+        }
+    ]
+    try:
+        await loop.run_in_executor(None, render_video, scenes, str(video_path), orientation)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)}")
+
+    return JSONResponse(content={
+        "scene_id": scene_id,
+        "video_url": f"/api/media/{scene_id}/video.mp4",
+    })
+
+
 @app.post("/api/upload-media")
 async def api_upload_media(
     file: UploadFile = File(...),
@@ -202,6 +271,28 @@ async def api_upload_media(
         "media_url": f"/api/media/{scene_id}/{save_name}",
         "media_type": media_type,
     })
+
+
+@app.post("/api/upload-logo")
+async def api_upload_logo(file: UploadFile = File(...)):
+    """Upload a logo image that will be applied to rendered videos.
+
+    Saves the logo into the static/uploads directory and returns a public URL.
+    """
+    uploads_dir = STATIC_DIR / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
+
+    ext = Path(file.filename).suffix.lower() or ".png"
+    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".svg"}:
+        raise HTTPException(status_code=400, detail="Unsupported logo file type.")
+
+    fname = f"logo_{uuid.uuid4().hex}{ext}"
+    save_path = uploads_dir / fname
+    content = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(content)
+
+    return JSONResponse(content={"url": f"/static/uploads/{fname}"})
 
 
 @app.get("/api/media/{scene_id}/{filename}")
@@ -285,11 +376,13 @@ def _resolve_scenes_for_render(scenes_data: list[dict]) -> list[dict]:
             "volume": float(s.get("volume", 1.0)),
             "mute_audio": mute_audio,
             "duration": dur,
+            "subtitle": s.get("subtitle") or s.get("subtitleOverride") or None,
+            "show_subtitles": bool(s.get("show_subtitles") or s.get("showSubtitles")),
         })
     return scenes
 
 
-def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str):
+def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str, use_hw_accel: bool = False, logo_url: Optional[str] = None, logo_position: str = "bottom-right"):
     """Background task: renders the video and updates job status."""
     try:
         render_jobs[job_id]["status"] = "rendering"
@@ -299,12 +392,25 @@ def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str):
         def progress_cb(pct: int):
             render_jobs[job_id]["progress"] = int(pct)
 
+        # Map public logo URL to filesystem path for ffmpeg to read.
+        logo_path_fs = None
+        try:
+            if logo_url and logo_url.startswith("/static/"):
+                logo_path_fs = str((BASE_DIR / logo_url.lstrip("/"))).replace("\\", "/")
+                if not (BASE_DIR / logo_url.lstrip("/")).exists():
+                    logo_path_fs = None
+        except Exception:
+            logo_path_fs = None
+
         render_video(
             scenes,
             output_path,
             orientation=orientation,
             preset=preset,
             progress_callback=progress_cb,
+            use_hw_accel=use_hw_accel,
+            logo_path=logo_path_fs,
+            logo_position=logo_position,
         )
 
         render_jobs[job_id]["status"] = "done"
@@ -322,6 +428,9 @@ async def api_render_video(
     scenes: str = Form(...),
     orientation: str = Form("landscape"),
     render_preset: str = Form("balanced"),
+    use_hw_accel: bool = Form(False),
+    logo_url: Optional[str] = Form(None),
+    logo_position: str = Form("bottom-right"),
 ):
     """
     Start a video render job.
@@ -376,7 +485,7 @@ async def api_render_video(
         "render_preset": preset,
     }
 
-    background_tasks.add_task(_run_render, job_id, resolved, orientation, preset)
+    background_tasks.add_task(_run_render, job_id, resolved, orientation, preset, use_hw_accel, logo_url, logo_position)
 
     return JSONResponse(
         content={
@@ -457,6 +566,7 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
         default_voice = bulk_data.get("default_voice", "en-US-JennyNeural")
         image_source = bulk_data.get("image_source", "ai")
         preset = _normalize_render_preset(bulk_data.get("render_preset"))
+        use_hw_accel = bool(bulk_data.get("use_hw_accel", False))
         target_w, target_h = ORIENTATIONS.get(orientation, (1920, 1080))
 
         scene_ids = []
@@ -539,6 +649,8 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
                 "volume": float(scene.get("volume", 1.0)),
                 "mute_audio": mute_audio,
                 "duration": dur,
+                "subtitle": scene.get("subtitle") or scene.get("subtitleOverride") or None,
+                "show_subtitles": bool(scene.get("show_subtitles") or scene.get("showSubtitles")),
             })
 
         output_path = str(OUTPUT_DIR / f"{job_id}.mp4")
@@ -564,6 +676,7 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
             orientation=orientation,
             preset=preset,
             progress_callback=progress_cb,
+            use_hw_accel=use_hw_accel,
         )
 
         render_jobs[job_id]["status"] = "done"
@@ -573,6 +686,7 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
         render_jobs[job_id]["current_step"] = "Complete!"
 
     except Exception as e:
+        logging.exception("Bulk pipeline failed for job %s", job_id)
         render_jobs[job_id]["status"] = "error"
         render_jobs[job_id]["error"] = str(e)
 
@@ -625,10 +739,8 @@ async def api_bulk_generate(
         "estimated_total_seconds": rough_total,
     }
 
-    # We need to run the async pipeline in the background.
-    # BackgroundTasks doesn't support async well, so we schedule it as a task.
-    loop = asyncio.get_event_loop()
-    loop.create_task(_bulk_generate_pipeline(job_id, bulk_data))
+    # Schedule the async pipeline in the background on the running loop.
+    asyncio.create_task(_bulk_generate_pipeline(job_id, bulk_data))
 
     return JSONResponse(
         content={
