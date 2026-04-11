@@ -88,6 +88,15 @@
                 </div>
 
                 <div class="form-group">
+                    <label class="form-label" for="bulk-render-preset">Video export</label>
+                    <select class="form-select" id="bulk-render-preset" title="Fast uses 720p and fewer frames for quicker renders">
+                        <option value="fast">Fast (720p, quickest)</option>
+                        <option value="balanced" selected>Balanced (1080p)</option>
+                        <option value="high">High quality (slower)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
                     <label class="form-label">Image Source</label>
                     <div class="radio-group" id="bulk-image-source">
                         <label class="radio-card active" data-src="ai">

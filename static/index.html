@@ -90,7 +90,13 @@
                 <h2>Scenes</h2>
                 <span class="scene-count" id="scene-count">0 scenes</span>
             </div>
-            <div class="toolbar-right">
+            <div class="toolbar-right toolbar-render-opts">
+                <label class="toolbar-label" for="render-preset">Export</label>
+                <select class="form-select toolbar-preset-select" id="render-preset" title="Faster presets use 720p and fewer frames per second">
+                    <option value="fast">Fast (720p, quickest)</option>
+                    <option value="balanced" selected>Balanced (1080p)</option>
+                    <option value="high">High quality (slower)</option>
+                </select>
                 <button class="btn btn-secondary" id="btn-add-scene">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add Scene
@@ -129,8 +135,9 @@
                 <div class="progress-bar-fill" id="render-progress-bar"></div>
             </div>
             <p class="render-sub" id="render-sub-text">
+                <span class="eta-text" id="render-estimate-line"></span>
                 <span class="eta-text" id="render-eta" style="display:none;"></span><br>
-                This may take a few minutes depending on scene count.
+                <span class="render-hint">Still images render through <strong>FFmpeg</strong> (install FFmpeg and keep it on PATH). Use <strong>Fast</strong> export or <strong>None</strong> animation for the shortest runs.</span>
             </p>
             <a href="#" class="btn btn-primary render-download-btn hidden" id="render-download-btn">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>

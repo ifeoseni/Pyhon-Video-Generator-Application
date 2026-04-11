@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 import os
 import numpy as np
+from proglog import ProgressBarLogger
+
+from ffmpeg_render import ffmpeg_available, scenes_eligible_for_ffmpeg, render_with_ffmpeg
 from moviepy import (
     ImageClip,
     VideoFileClip,
@@ -37,18 +42,159 @@ ORIENTATIONS = {
     "portrait":  (1080, 1920),
 }
 
+# Export presets: lower resolution + fps = much faster encoding and fewer frames to composite.
+RENDER_PRESETS = {
+    "fast": {
+        "max_side": 1280,
+        "fps": 20,
+        "preset": "ultrafast",
+        "crf": "26",
+        "audio_bitrate": "128k",
+        "oversample": 1.08,
+        "encode_factor": 0.22,
+        "ffmpeg_encode_factor": 0.07,
+        "ffmpeg_params": ["-movflags", "+faststart", "-tune", "stillimage"],
+    },
+    "balanced": {
+        "max_side": None,
+        "fps": 24,
+        "preset": "veryfast",
+        "crf": "23",
+        "audio_bitrate": "192k",
+        "oversample": 1.12,
+        "encode_factor": 0.48,
+        "ffmpeg_encode_factor": 0.11,
+        "ffmpeg_params": ["-movflags", "+faststart"],
+    },
+    "high": {
+        "max_side": None,
+        "fps": 30,
+        "preset": "medium",
+        "crf": "18",
+        "audio_bitrate": "256k",
+        "oversample": 1.15,
+        "encode_factor": 0.95,
+        "ffmpeg_encode_factor": 0.22,
+        "ffmpeg_params": ["-movflags", "+faststart"],
+    },
+}
+
+
+def _dims_for_preset(base_w: int, base_h: int, preset_name: str) -> tuple[int, int]:
+    cfg = RENDER_PRESETS.get(preset_name, RENDER_PRESETS["balanced"])
+    cap = cfg.get("max_side")
+    if not cap:
+        return base_w, base_h
+    if base_w >= base_h:
+        if base_w <= cap:
+            return base_w, base_h
+        nw = cap
+        nh = max(2, int(round(base_h * (cap / base_w))))
+        if nh % 2:
+            nh += 1
+        return nw, nh
+    if base_h <= cap:
+        return base_w, base_h
+    nh = cap
+    nw = max(2, int(round(base_w * (cap / base_h))))
+    if nw % 2:
+        nw += 1
+    return nw, nh
+
+
+def estimate_output_duration_seconds(scenes: list[dict], trans_overlap: float = 0.7) -> float:
+    """
+    Approximate final timeline length from scene dicts (must include accurate per-scene duration).
+    """
+    if not scenes:
+        return 0.0
+    total = 0.0
+    for s in scenes:
+        total += float(s.get("duration", 5.0))
+    fades = sum(
+        1 for s in scenes[1:] if s.get("transition", "crossfade") != "none"
+    )
+    return max(0.1, total - fades * trans_overlap)
+
+
+class _WriteProgressLogger(ProgressBarLogger):
+    """Maps MoviePy audio chunks + video frames to overall 36–96% progress."""
+
+    def __init__(self, on_percent):
+        super().__init__()
+        self.on_percent = on_percent
+
+    def bars_callback(self, bar, attr, value, old_value=None):
+        if attr != "index":
+            return
+        info = self.bars.get(bar)
+        if not info:
+            return
+        total = info.get("total")
+        if not total or total <= 0:
+            return
+        frac = min(1.0, max(0.0, float(value) / float(total)))
+        if bar == "chunk":
+            p = 36 + int(3 * frac)
+        elif bar == "frame_index":
+            p = 40 + int(56 * frac)
+        else:
+            return
+        if self.on_percent:
+            self.on_percent(p)
+
+
+def get_export_dimensions(orientation: str, preset: str) -> tuple[int, int, int]:
+    """Output width, height, and fps for the given orientation and preset."""
+    base_w, base_h = ORIENTATIONS.get(orientation, ORIENTATIONS["landscape"])
+    w, h = _dims_for_preset(base_w, base_h, preset)
+    fps = int(RENDER_PRESETS.get(preset, RENDER_PRESETS["balanced"])["fps"])
+    return w, h, fps
+
+
+def estimate_encode_wall_seconds(
+    output_duration: float,
+    preset_name: str,
+    target_w: int,
+    target_h: int,
+    fps: int,
+    scenes: list[dict],
+) -> float:
+    """
+    Heuristic wall-clock encode time (seconds). Tuned for typical laptops; actual time varies.
+    """
+    cfg = RENDER_PRESETS.get(preset_name, RENDER_PRESETS["balanced"])
+    ref_pixels = 1920 * 1080 * 24
+    pixels_rate = (max(1, target_w) * max(1, target_h) * max(1, fps)) / ref_pixels
+    motion = 1.0
+    for s in scenes:
+        if s.get("media_type", "image") == "image" and s.get("animation", "ken_burns") not in (
+            "none",
+            None,
+        ):
+            motion = max(motion, 1.28)
+
+    if scenes_eligible_for_ffmpeg(scenes) and ffmpeg_available():
+        ff_fac = float(cfg.get("ffmpeg_encode_factor", 0.1))
+        base = 3.0 + output_duration * ff_fac * pixels_rate * motion + 2.5 * len(scenes)
+        return max(6.0, base)
+
+    base = 6.0 + output_duration * cfg["encode_factor"] * pixels_rate * motion
+    return max(8.0, base)
+
 
 # ── Animation Helpers ─────────────────────────────────────────────────────
 
-def _apply_animation(clip, animation: str, target_w: int, target_h: int):
+def _apply_animation(
+    clip, animation: str, target_w: int, target_h: int, oversample: float = 1.15
+):
     """Apply a motion animation to an image clip. The clip is slightly
     oversized so the motion doesn't reveal edges, then cropped back."""
     if animation == "none" or clip is None:
         return clip
 
     duration = clip.duration
-    # Oversample factor so panning/zooming doesn't show black edges
-    scale = 1.15
+    scale = oversample
 
     ow = int(target_w * scale)
     oh = int(target_h * scale)
@@ -154,7 +300,9 @@ def _apply_animation(clip, animation: str, target_w: int, target_h: int):
 
 # ── Scene Builder ─────────────────────────────────────────────────────────
 
-def build_scene_clip(scene: dict, target_w: int, target_h: int) -> object:
+def build_scene_clip(
+    scene: dict, target_w: int, target_h: int, oversample: float = 1.15
+) -> object:
     """
     Build a single scene clip from a scene dictionary.
 
@@ -201,7 +349,7 @@ def build_scene_clip(scene: dict, target_w: int, target_h: int) -> object:
             ImageClip(media_path)
             .with_duration(duration)
         )
-        clip = _apply_animation(clip, animation, target_w, target_h)
+        clip = _apply_animation(clip, animation, target_w, target_h, oversample=oversample)
 
     if audio is not None:
         clip = clip.with_audio(audio)
@@ -266,8 +414,9 @@ def render_video(
     scenes: list[dict],
     output_path: str,
     orientation: str = "landscape",
-    fps: int = 24,
+    fps: int | None = None,
     progress_callback=None,
+    preset: str = "balanced",
 ) -> str:
     """
     Render the full explainer video from a list of scenes.
@@ -279,8 +428,12 @@ def render_video(
             - 'volume' (float 0.0-2.0), 'mute_audio' (bool)
         output_path (str): Where to write the final MP4 file.
         orientation (str): 'landscape' or 'portrait'.
-        fps (int): Frames per second.
-        progress_callback: Optional callable(percent: int).
+        fps (int | None): Override frames per second; default comes from `preset`.
+        progress_callback: Optional callable(percent: int 0–100).
+        preset (str): 'fast' | 'balanced' | 'high' — resolution, fps, and encoder settings.
+
+    Still-image scenes use **FFmpeg** (much faster) when `ffmpeg` is on PATH; video clips
+    or failures fall back to MoviePy.
 
     Returns:
         str: Path to the rendered video file.
@@ -288,21 +441,43 @@ def render_video(
     if not scenes:
         raise ValueError("At least one scene is required to render a video.")
 
-    target_w, target_h = ORIENTATIONS.get(orientation, ORIENTATIONS["landscape"])
+    pconf = RENDER_PRESETS.get(preset, RENDER_PRESETS["balanced"])
+    base_w, base_h = ORIENTATIONS.get(orientation, ORIENTATIONS["landscape"])
+    target_w, target_h = _dims_for_preset(base_w, base_h, preset)
+    eff_fps = int(fps if fps is not None else pconf["fps"])
+
+    if scenes_eligible_for_ffmpeg(scenes) and ffmpeg_available():
+        try:
+            if progress_callback:
+                progress_callback(1)
+            return render_with_ffmpeg(
+                scenes,
+                output_path,
+                target_w,
+                target_h,
+                eff_fps,
+                pconf,
+                progress_callback,
+            )
+        except Exception:
+            pass
+    oversample = float(pconf["oversample"])
+    thread_n = min(16, max(2, (os.cpu_count() or 4) * 2))
 
     if progress_callback:
-        progress_callback(5)
+        progress_callback(2)
 
     # Build all scene clips
     clips = []
+    n = len(scenes)
     for i, scene in enumerate(scenes):
-        clip = build_scene_clip(scene, target_w, target_h)
+        clip = build_scene_clip(scene, target_w, target_h, oversample=oversample)
         clips.append(clip)
         if progress_callback:
-            progress_callback(5 + int((i + 1) / len(scenes) * 35))
+            progress_callback(2 + int((i + 1) / n * 33))
 
     if progress_callback:
-        progress_callback(40)
+        progress_callback(36)
 
     # Apply transitions
     trans_dur = 0.7
@@ -319,26 +494,40 @@ def render_video(
                 composed.append(clips[i])
 
         final = concatenate_videoclips(
-            composed, method="compose",
-            padding=-trans_dur if any(s.get("transition", "crossfade") != "none" for s in scenes[1:]) else 0
+            composed,
+            method="compose",
+            padding=-trans_dur
+            if any(s.get("transition", "crossfade") != "none" for s in scenes[1:])
+            else 0,
         )
 
     if progress_callback:
-        progress_callback(50)
+        progress_callback(36)
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+    ffmpeg_params = list(pconf.get("ffmpeg_params") or [])
+    ffmpeg_params = [x for x in ffmpeg_params if x is not None]
+    crf = str(pconf.get("crf", "23"))
+    ffmpeg_params = ["-crf", crf] + ffmpeg_params
+
+    vid_logger = _WriteProgressLogger(progress_callback) if progress_callback else None
+
     final.write_videofile(
         output_path,
-        fps=fps,
+        fps=eff_fps,
         codec="libx264",
         audio_codec="aac",
-        threads=8,  # Increased threads to accelerate rendering
-        preset="ultrafast",  # Massive encoding speed boost
-        bitrate="5000k",
+        audio_bitrate=pconf.get("audio_bitrate", "192k"),
+        threads=thread_n,
+        preset=pconf["preset"],
+        bitrate=None,
+        ffmpeg_params=ffmpeg_params,
+        logger=vid_logger if vid_logger is not None else "bar",
     )
 
     if progress_callback:
-        progress_callback(95)
+        progress_callback(98)
 
     # Clean up
     for clip in clips:

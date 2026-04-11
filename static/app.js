@@ -33,6 +33,7 @@
     const renderStatusText  = document.getElementById("render-status-text");
     const renderProgressBar = document.getElementById("render-progress-bar");
     const renderSubText     = document.getElementById("render-sub-text");
+    const renderEstimateLine = document.getElementById("render-estimate-line");
     const renderDownloadBtn = document.getElementById("render-download-btn");
     const renderCloseBtn    = document.getElementById("render-close-btn");
 
@@ -103,6 +104,15 @@
     }
 
     // ── Toasts ───────────────────────────────────────────────────────────
+    function fmtDurationSeconds(sec) {
+        if (sec == null || Number.isNaN(sec)) return "—";
+        const n = Math.max(0, Math.round(Number(sec)));
+        if (n < 60) return `${n}s`;
+        const m = Math.floor(n / 60);
+        const s = n % 60;
+        return s ? `${m}m ${s}s` : `${m}m`;
+    }
+
     function showToast(message, type = "info") {
         const toast = document.createElement("div");
         toast.className = `toast toast-${type}`;
@@ -378,25 +388,33 @@
 
         renderOverlay.classList.add("active");
         renderStatusText.textContent = "Preparing render…";
-        renderSubText.textContent = "This may take a few minutes.";
+        renderEstimateLine.textContent = "";
         renderProgressBar.style.width = "0%";
         renderDownloadBtn.classList.add("hidden");
         renderCloseBtn.classList.add("hidden");
+        const renderEtaEl = document.getElementById("render-eta");
+        renderEtaEl.style.display = "none";
+        renderEtaEl.textContent = "";
         renderOverlay.querySelector(".render-spinner").classList.remove("hidden");
 
         try {
             const form = new FormData();
             form.append("scenes", JSON.stringify(scenesData));
             form.append("orientation", currentOrientation);
+            form.append("render_preset", document.getElementById("render-preset").value);
 
             const res = await fetch("/api/render", { method: "POST", body: form });
             if (!res.ok) throw new Error((await res.json()).detail || "Render failed.");
 
-            const { job_id } = await res.json();
+            const data = await res.json();
+            const { job_id, output_duration_seconds, estimated_render_seconds, render_preset } = data;
+            const presetLabel = render_preset || "balanced";
+            renderEstimateLine.textContent =
+                `Output length ~${fmtDurationSeconds(output_duration_seconds)} · Est. total render ~${fmtDurationSeconds(estimated_render_seconds)} (${presetLabel})`;
             pollRenderStatus(job_id);
         } catch (e) {
             renderStatusText.textContent = "Render failed";
-            renderSubText.textContent = e.message;
+            renderEstimateLine.textContent = e.message;
             renderOverlay.querySelector(".render-spinner").classList.add("hidden");
             renderCloseBtn.classList.remove("hidden");
         }
@@ -408,18 +426,23 @@
                 const data = await (await fetch(`/api/render-status/${jobId}`)).json();
                 if (data.progress !== undefined) renderProgressBar.style.width = data.progress + "%";
                 
+                const etaEl = document.getElementById("render-eta");
                 if (data.eta_seconds !== undefined && data.eta_seconds > 0) {
-                    const m = Math.floor(data.eta_seconds / 60);
-                    const s = data.eta_seconds % 60;
-                    document.getElementById("render-eta").style.display = "inline";
-                    document.getElementById("render-eta").textContent = `Estimated Time Remaining: ${m}m ${s}s`;
+                    const rem = data.eta_seconds;
+                    const m = Math.floor(rem / 60);
+                    const s = rem % 60;
+                    const clock = new Date(Date.now() + rem * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+                    const leftStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+                    etaEl.style.display = "block";
+                    etaEl.textContent = `~${leftStr} remaining · estimated finish around ${clock}`;
                 } else {
-                    document.getElementById("render-eta").style.display = "none";
+                    etaEl.style.display = "none";
                 }
 
                 if (data.status === "done") {
                     renderStatusText.textContent = "Video ready! 🎉";
-                    renderSubText.textContent = "Your explainer video has been rendered successfully.";
+                    renderEstimateLine.textContent = "Rendering complete. Download your video below.";
+                    etaEl.style.display = "none";
                     renderProgressBar.style.width = "100%";
                     renderOverlay.querySelector(".render-spinner").classList.add("hidden");
                     renderDownloadBtn.href = data.output_url;
@@ -430,7 +453,8 @@
                 }
                 if (data.status === "error") {
                     renderStatusText.textContent = "Render failed";
-                    renderSubText.textContent = data.error || "Unknown error.";
+                    renderEstimateLine.textContent = data.error || "Unknown error.";
+                    etaEl.style.display = "none";
                     renderOverlay.querySelector(".render-spinner").classList.add("hidden");
                     renderCloseBtn.classList.remove("hidden");
                     showToast("Render failed.", "error");

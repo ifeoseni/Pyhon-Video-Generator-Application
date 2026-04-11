@@ -18,6 +18,7 @@
     const wizardSteps = document.querySelectorAll(".wizard-step");
 
     const voiceSelect       = document.getElementById("bulk-voice");
+    const bulkRenderPreset  = document.getElementById("bulk-render-preset");
     const templateSelect    = document.getElementById("bulk-template-select");
     const btnLoadTemplate   = document.getElementById("btn-load-template");
     const orientBtns        = document.querySelectorAll("#bulk-orient-toggle .orient-btn");
@@ -46,6 +47,15 @@
     const toastContainer = document.createElement("div");
     toastContainer.className = "toast-container";
     document.body.appendChild(toastContainer);
+
+    function fmtDurationSeconds(sec) {
+        if (sec == null || Number.isNaN(sec)) return "—";
+        const n = Math.max(0, Math.round(Number(sec)));
+        if (n < 60) return `${n}s`;
+        const m = Math.floor(n / 60);
+        const s = n % 60;
+        return s ? `${m}m ${s}s` : `${m}m`;
+    }
 
     function showToast(msg, type = "info") {
         const t = document.createElement("div");
@@ -452,6 +462,7 @@
             orientation: currentOrientation,
             default_voice: voiceSelect.value,
             image_source: imageSource,
+            render_preset: bulkRenderPreset ? bulkRenderPreset.value : "balanced",
             scenes: parsedScenes.map(s => ({
                 scene_id: s.scene_id,
                 narration: s.narration,
@@ -470,7 +481,11 @@
             const res = await fetch("/api/bulk-generate", { method: "POST", body: form });
             if (!res.ok) throw new Error((await res.json()).detail || "Bulk generation failed.");
 
-            const { job_id } = await res.json();
+            const startData = await res.json();
+            const { job_id, estimated_total_seconds } = startData;
+            if (estimated_total_seconds != null) {
+                bulkGenDesc.textContent = `Rough total job time ~${fmtDurationSeconds(estimated_total_seconds)} (varies with APIs and scene count).`;
+            }
             pollBulkStatus(job_id);
         } catch (e) {
             bulkGenTitle.textContent = "Generation Failed";
@@ -487,13 +502,17 @@
                 if (data.progress !== undefined) bulkProgressBar.style.width = data.progress + "%";
                 if (data.current_step) document.getElementById("bulk-step-label-main").textContent = data.current_step;
 
+                const bulkEta = document.getElementById("bulk-eta");
                 if (data.eta_seconds !== undefined && data.eta_seconds > 0) {
-                    const m = Math.floor(data.eta_seconds / 60);
-                    const s = data.eta_seconds % 60;
-                    document.getElementById("bulk-eta").style.display = "inline";
-                    document.getElementById("bulk-eta").textContent = `Estimated Time Remaining: ${m}m ${s}s`;
+                    const rem = data.eta_seconds;
+                    const m = Math.floor(rem / 60);
+                    const s = rem % 60;
+                    const clock = new Date(Date.now() + rem * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+                    const leftStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+                    bulkEta.style.display = "block";
+                    bulkEta.textContent = `~${leftStr} remaining · estimated finish around ${clock}`;
                 } else {
-                    document.getElementById("bulk-eta").style.display = "none";
+                    bulkEta.style.display = "none";
                 }
 
                 if (data.status === "done") {

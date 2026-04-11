@@ -12,7 +12,16 @@ import uvicorn
 
 from audio_engine import generate_audio_from_text
 from image_engine import generate_prompt_image
-from video_engine import render_video, ANIMATIONS, TRANSITIONS, ORIENTATIONS
+from video_engine import (
+    render_video,
+    ANIMATIONS,
+    TRANSITIONS,
+    ORIENTATIONS,
+    RENDER_PRESETS,
+    get_export_dimensions,
+    estimate_output_duration_seconds,
+    estimate_encode_wall_seconds,
+)
 from project_manager import (
     save_project, load_project, list_projects, delete_project,
     list_templates, get_template,
@@ -236,47 +245,67 @@ def _find_audio(scene_dir: Path):
             return candidate
     return None
 
-def _run_render(job_id: str, scenes_data: list[dict], orientation: str):
+
+def _normalize_render_preset(name: Optional[str]) -> str:
+    n = (name or "balanced").lower().strip()
+    if n not in RENDER_PRESETS:
+        return "balanced"
+    return n
+
+
+def _resolve_scenes_for_render(scenes_data: list[dict]) -> list[dict]:
+    """Build scene dicts for video_engine plus per-scene duration for ETA estimates."""
+    from moviepy import AudioFileClip
+
+    scenes = []
+    for i, s in enumerate(scenes_data):
+        scene_dir = CACHE_DIR / s["scene_id"]
+        audio_path = _find_audio(scene_dir)
+        media_path, actual_type = _find_media(scene_dir, s.get("media_type", "image"))
+
+        if not media_path:
+            raise FileNotFoundError(f"No media found for scene {i + 1} (id: {s['scene_id']})")
+
+        mute_audio = s.get("mute_audio", False)
+        if not audio_path and not mute_audio:
+            raise FileNotFoundError(f"No audio found for scene {i + 1} (id: {s['scene_id']})")
+
+        dur = 5.0
+        if audio_path and not mute_audio:
+            ac = AudioFileClip(str(audio_path))
+            dur = float(ac.duration)
+            ac.close()
+
+        scenes.append({
+            "media_path": media_path,
+            "audio_path": str(audio_path) if audio_path else None,
+            "media_type": actual_type or "image",
+            "animation": s.get("animation", "ken_burns"),
+            "transition": s.get("transition", "crossfade"),
+            "volume": float(s.get("volume", 1.0)),
+            "mute_audio": mute_audio,
+            "duration": dur,
+        })
+    return scenes
+
+
+def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str):
     """Background task: renders the video and updates job status."""
     try:
         render_jobs[job_id]["status"] = "rendering"
-        render_jobs[job_id]["progress"] = 10
-        import time
-        render_jobs[job_id]["start_time"] = time.time()
-
-        scenes = []
-        for i, s in enumerate(scenes_data):
-            scene_dir = CACHE_DIR / s["scene_id"]
-            audio_path = _find_audio(scene_dir)
-
-            media_path, actual_type = _find_media(scene_dir, s.get("media_type", "image"))
-
-            if not media_path:
-                raise FileNotFoundError(f"No media found for scene {i + 1} (id: {s['scene_id']})")
-
-            mute_audio = s.get("mute_audio", False)
-            if not audio_path and not mute_audio:
-                raise FileNotFoundError(f"No audio found for scene {i + 1} (id: {s['scene_id']})")
-
-            scenes.append({
-                "media_path": media_path,
-                "audio_path": str(audio_path) if audio_path else None,
-                "media_type": actual_type or "image",
-                "animation": s.get("animation", "ken_burns"),
-                "transition": s.get("transition", "crossfade"),
-                "volume": float(s.get("volume", 1.0)),
-                "mute_audio": mute_audio,
-            })
-
-            render_jobs[job_id]["progress"] = 10 + int((i + 1) / len(scenes_data) * 20)
 
         output_path = str(OUTPUT_DIR / f"{job_id}.mp4")
-        render_jobs[job_id]["progress"] = 30
 
-        def progress_cb(pct):
-            render_jobs[job_id]["progress"] = 30 + int(pct * 0.7)
+        def progress_cb(pct: int):
+            render_jobs[job_id]["progress"] = int(pct)
 
-        render_video(scenes, output_path, orientation=orientation, progress_callback=progress_cb)
+        render_video(
+            scenes,
+            output_path,
+            orientation=orientation,
+            preset=preset,
+            progress_callback=progress_cb,
+        )
 
         render_jobs[job_id]["status"] = "done"
         render_jobs[job_id]["progress"] = 100
@@ -292,6 +321,7 @@ async def api_render_video(
     background_tasks: BackgroundTasks,
     scenes: str = Form(...),
     orientation: str = Form("landscape"),
+    render_preset: str = Form("balanced"),
 ):
     """
     Start a video render job.
@@ -319,13 +349,43 @@ async def api_render_video(
     if orientation not in ORIENTATIONS:
         orientation = "landscape"
 
+    preset = _normalize_render_preset(render_preset)
+
+    try:
+        resolved = _resolve_scenes_for_render(scenes_data)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    tw, th, eff_fps = get_export_dimensions(orientation, preset)
+    out_dur = estimate_output_duration_seconds(resolved)
+    encode_est = estimate_encode_wall_seconds(
+        out_dur, preset, tw, th, eff_fps, resolved
+    )
+    setup_est = 12.0
+    total_est = int(max(15, round(setup_est + encode_est)))
+
     job_id = str(uuid.uuid4())
     import time
-    render_jobs[job_id] = {"status": "queued", "progress": 0, "start_time": time.time()}
 
-    background_tasks.add_task(_run_render, job_id, scenes_data, orientation)
+    render_jobs[job_id] = {
+        "status": "queued",
+        "progress": 0,
+        "start_time": time.time(),
+        "output_duration_seconds": round(out_dur, 1),
+        "estimated_total_seconds": total_est,
+        "render_preset": preset,
+    }
 
-    return JSONResponse(content={"job_id": job_id})
+    background_tasks.add_task(_run_render, job_id, resolved, orientation, preset)
+
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "output_duration_seconds": round(out_dur, 1),
+            "estimated_render_seconds": total_est,
+            "render_preset": preset,
+        }
+    )
 
 
 @app.get("/api/render-status/{job_id}")
@@ -336,15 +396,27 @@ async def api_render_status(job_id: str):
     
     job = render_jobs[job_id]
     
-    # Calculate ETA
     import time
-    if "start_time" in job and job.get("progress", 0) > 0 and job.get("status") not in {"done", "error"}:
-        elapsed = time.time() - job["start_time"]
-        progress = job["progress"] / 100.0
-        total_estimated = elapsed / progress
-        job["eta_seconds"] = max(0, int(total_estimated - elapsed))
-    else:
+
+    st = job.get("start_time")
+    prog = job.get("progress", 0) / 100.0
+    status = job.get("status")
+    est_total = float(job.get("estimated_total_seconds") or 0)
+
+    if status in {"done", "error"}:
         job["eta_seconds"] = 0
+    elif st is not None and prog >= 0.995:
+        job["eta_seconds"] = 0
+    elif st is not None and status not in {"done", "error"}:
+        elapsed = time.time() - float(st)
+        if prog >= 0.04:
+            by_rate = (elapsed / prog) - elapsed
+        else:
+            by_rate = max(0.0, est_total - elapsed) if est_total else 90.0
+        cap = (est_total * 2.5 + 120) if est_total else 3600.0
+        job["eta_seconds"] = max(0, int(min(by_rate, cap)))
+    else:
+        job["eta_seconds"] = max(0, int(est_total)) if est_total else 0
 
     return JSONResponse(content=job)
 
@@ -377,12 +449,14 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
         import time
         render_jobs[job_id]["status"] = "generating_audio"
         render_jobs[job_id]["progress"] = 5
-        render_jobs[job_id]["start_time"] = time.time()
+        if "start_time" not in render_jobs[job_id]:
+            render_jobs[job_id]["start_time"] = time.time()
 
         scenes_input = bulk_data["scenes"]
         orientation = bulk_data.get("orientation", "landscape")
         default_voice = bulk_data.get("default_voice", "en-US-JennyNeural")
         image_source = bulk_data.get("image_source", "ai")
+        preset = _normalize_render_preset(bulk_data.get("render_preset"))
         target_w, target_h = ORIENTATIONS.get(orientation, (1920, 1080))
 
         scene_ids = []
@@ -436,6 +510,8 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
         render_jobs[job_id]["progress"] = 60
         render_jobs[job_id]["current_step"] = "Rendering video…"
 
+        from moviepy import AudioFileClip
+
         render_scenes = []
         for i, scene in enumerate(scenes_input):
             scene_id = scene_ids[i]
@@ -447,6 +523,13 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
             if not media_path:
                 raise FileNotFoundError(f"No media found for scene {i + 1}")
 
+            mute_audio = scene.get("mute_audio", False)
+            dur = 5.0
+            if audio_path and not mute_audio:
+                ac = AudioFileClip(str(audio_path))
+                dur = float(ac.duration)
+                ac.close()
+
             render_scenes.append({
                 "media_path": media_path,
                 "audio_path": str(audio_path) if audio_path else None,
@@ -454,15 +537,34 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
                 "animation": scene.get("animation", "ken_burns"),
                 "transition": scene.get("transition", "crossfade"),
                 "volume": float(scene.get("volume", 1.0)),
-                "mute_audio": scene.get("mute_audio", False),
+                "mute_audio": mute_audio,
+                "duration": dur,
             })
 
         output_path = str(OUTPUT_DIR / f"{job_id}.mp4")
 
-        def progress_cb(pct):
-            render_jobs[job_id]["progress"] = 60 + int(pct * 0.38)
+        tw, th, eff_fps = get_export_dimensions(orientation, preset)
+        out_dur = estimate_output_duration_seconds(render_scenes)
+        enc_est = estimate_encode_wall_seconds(
+            out_dur, preset, tw, th, eff_fps, render_scenes
+        )
+        elapsed = time.time() - render_jobs[job_id]["start_time"]
+        render_jobs[job_id]["output_duration_seconds"] = round(out_dur, 1)
+        render_jobs[job_id]["estimated_total_seconds"] = int(
+            max(elapsed + 15, elapsed + enc_est + 8)
+        )
+        render_jobs[job_id]["render_preset"] = preset
 
-        render_video(render_scenes, output_path, orientation=orientation, progress_callback=progress_cb)
+        def progress_cb(pct):
+            render_jobs[job_id]["progress"] = 60 + int(pct * 0.4)
+
+        render_video(
+            render_scenes,
+            output_path,
+            orientation=orientation,
+            preset=preset,
+            progress_callback=progress_cb,
+        )
 
         render_jobs[job_id]["status"] = "done"
         render_jobs[job_id]["progress"] = 100
@@ -509,14 +611,31 @@ async def api_bulk_generate(
         raise HTTPException(status_code=400, detail="At least one scene is required.")
 
     job_id = str(uuid.uuid4())
-    render_jobs[job_id] = {"status": "queued", "progress": 0, "current_step": "Queued"}
+    import time
+
+    n = len(bulk_data["scenes"])
+    img_extra = 40 * n if bulk_data.get("image_source", "ai") == "ai" else 8 * n
+    rough_total = max(90, 25 * n + img_extra + 45 * n)
+
+    render_jobs[job_id] = {
+        "status": "queued",
+        "progress": 0,
+        "current_step": "Queued",
+        "start_time": time.time(),
+        "estimated_total_seconds": rough_total,
+    }
 
     # We need to run the async pipeline in the background.
     # BackgroundTasks doesn't support async well, so we schedule it as a task.
     loop = asyncio.get_event_loop()
     loop.create_task(_bulk_generate_pipeline(job_id, bulk_data))
 
-    return JSONResponse(content={"job_id": job_id})
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "estimated_total_seconds": rough_total,
+        }
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
