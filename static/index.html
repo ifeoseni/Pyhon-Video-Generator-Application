@@ -148,6 +148,21 @@
               Portrait
             </button>
           </div>
+          <label class="toolbar-label" for="image-provider-select" style="margin-left: 0.5rem"
+            >Image AI</label
+          >
+          <select
+            id="image-provider-select"
+            class="form-select"
+            style="min-width: 12rem; max-width: 22rem"
+            title="Backend for Generate image"
+          ></select>
+          <button class="btn btn-sm btn-outline" id="btn-keys">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3L15.5 7.5z" />
+            </svg>
+            API Keys
+          </button>
           <button class="btn btn-sm btn-outline" id="btn-save-project">
             <svg
               viewBox="0 0 24 24"
@@ -394,6 +409,47 @@
       </div>
     </div>
 
+    <!-- ─── API Keys Modal ─── -->
+    <div class="modal-overlay" id="keys-overlay">
+      <div class="modal glass" style="width: 500px">
+        <button class="modal-close" id="keys-close">&times;</button>
+        <h2>Image AI API Keys</h2>
+        <p class="modal-sub" style="margin-bottom: 1.5rem">Keys are saved <strong>locally in your browser</strong>. They are never stored on the server permanently unless set as environment variables.</p>
+        
+        <div class="keys-form" id="keys-form">
+          <!-- Dynamically populated or static -->
+          <div class="key-field">
+            <label>OpenAI API Key</label>
+            <input type="password" data-key="OPENAI_API_KEY" placeholder="sk-..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>Together AI Key</label>
+            <input type="password" data-key="TOGETHER_API_KEY" placeholder="Together token..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>Google / Gemini Key</label>
+            <input type="password" data-key="GEMINI_API_KEY" placeholder="AI Studio key..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>Hugging Face Token</label>
+            <input type="password" data-key="HF_TOKEN" placeholder="hf_..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>DeepAI API Key</label>
+            <input type="password" data-key="DEEPAI_API_KEY" placeholder="quickstart-..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>Stable Horde Key</label>
+            <input type="password" data-key="STABLE_HORDE_API_KEY" placeholder="API key (optional)..." class="form-control" />
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 0.5rem">
+          <button class="btn btn-ghost" id="btn-keys-clear">Clear All</button>
+          <button class="btn btn-primary" id="btn-keys-save">Save Keys</button>
+        </div>
+      </div>
+    </div>
     <!-- ─── Projects Modal ─── -->
     <div class="modal-overlay" id="projects-overlay">
       <div class="modal glass" style="width: 580px">

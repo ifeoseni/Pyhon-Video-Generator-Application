@@ -12,12 +12,14 @@
     let parsedScenes = [];
     let currentOrientation = "landscape";
     let imageSource = "ai";
+    let apiKeys = {};
 
     // ── DOM ──────────────────────────────────────────────────────────────
     const steps = [1, 2, 3, 4].map(n => document.getElementById(`step-${n}`));
     const wizardSteps = document.querySelectorAll(".wizard-step");
 
     const voiceSelect       = document.getElementById("bulk-voice");
+    const bulkImageProvider = document.getElementById("bulk-image-provider");
     const bulkRenderPreset  = document.getElementById("bulk-render-preset");
     const templateSelect    = document.getElementById("bulk-template-select");
     const btnLoadTemplate   = document.getElementById("btn-load-template");
@@ -43,6 +45,14 @@
     const bulkDownloadBtn   = document.getElementById("bulk-download-btn");
     const btnBulkReset      = document.getElementById("btn-bulk-reset");
 
+    // API Keys
+    const btnKeys           = document.getElementById("btn-keys");
+    const keysOverlay      = document.getElementById("keys-overlay");
+    const keysClose        = document.getElementById("keys-close");
+    const btnKeysSave      = document.getElementById("btn-keys-save");
+    const btnKeysClear      = document.getElementById("btn-keys-clear");
+    const keysForm         = document.getElementById("keys-form");
+
     // Toast
     const toastContainer = document.createElement("div");
     toastContainer.className = "toast-container";
@@ -67,8 +77,71 @@
 
     // ── Init ─────────────────────────────────────────────────────────────
     async function init() {
-        await Promise.all([loadVoices(), loadAnimations(), loadTransitions(), loadTemplates()]);
+        await Promise.all([loadVoices(), loadImageProviders(), loadAnimations(), loadTransitions(), loadTemplates()]);
+        loadApiKeys();
         bindEvents();
+    }
+
+    function loadApiKeys() {
+        try {
+            const stored = localStorage.getItem("explainer_api_keys");
+            if (stored) apiKeys = JSON.parse(stored);
+        } catch { apiKeys = {}; }
+        if (keysForm) {
+            keysForm.querySelectorAll("input").forEach(input => {
+                const k = input.dataset.key;
+                if (apiKeys[k]) input.value = apiKeys[k];
+            });
+        }
+    }
+
+    function saveApiKeys() {
+        if (!keysForm) return;
+        const newKeys = {};
+        keysForm.querySelectorAll("input").forEach(input => {
+            const k = input.dataset.key;
+            const v = input.value.trim();
+            if (v) newKeys[k] = v;
+        });
+        apiKeys = newKeys;
+        localStorage.setItem("explainer_api_keys", JSON.stringify(apiKeys));
+        showToast("API keys saved locally.", "success");
+        keysOverlay.classList.remove("active");
+    }
+
+    function getApiKeyForProvider(provider) {
+        if (!provider) return null;
+        if (provider === "openai") return apiKeys["OPENAI_API_KEY"];
+        if (provider === "together") return apiKeys["TOGETHER_API_KEY"];
+        if (provider === "huggingface_flux") return apiKeys["HF_TOKEN"];
+        if (provider === "deepai") return apiKeys["DEEPAI_API_KEY"];
+        if (provider === "stable_horde") return apiKeys["STABLE_HORDE_API_KEY"];
+        if (provider.startsWith("gemini") || provider === "imagen_fast") return apiKeys["GEMINI_API_KEY"];
+        return null;
+    }
+
+    async function loadImageProviders() {
+        if (!bulkImageProvider) return;
+        let list = [];
+        try { list = await (await fetch("/api/image-providers")).json(); } catch { list = []; }
+        bulkImageProvider.innerHTML = "";
+        if (!list.length) {
+            const o = document.createElement("option");
+            o.value = "pollinations";
+            o.textContent = "Pollinations.ai";
+            bulkImageProvider.appendChild(o);
+            return;
+        }
+        list.forEach(p => {
+            const o = document.createElement("option");
+            o.value = p.id;
+            o.textContent = p.name + (p.requires_api_key ? " · key" : "");
+            o.title = p.description || "";
+            bulkImageProvider.appendChild(o);
+        });
+        const saved = localStorage.getItem("explainer_image_provider");
+        if (saved && [...bulkImageProvider.options].some(x => x.value === saved))
+            bulkImageProvider.value = saved;
     }
 
     async function loadVoices() {
@@ -117,6 +190,12 @@
             });
         });
 
+        if (bulkImageProvider) {
+            bulkImageProvider.addEventListener("change", () => {
+                localStorage.setItem("explainer_image_provider", bulkImageProvider.value);
+            });
+        }
+
         // Template loader
         btnLoadTemplate.addEventListener("click", loadSelectedTemplate);
 
@@ -130,6 +209,35 @@
         // Generate
         btnStartBulk.addEventListener("click", startBulkGenerate);
         btnBulkReset.addEventListener("click", () => { goToStep(1); resetStep4(); });
+
+        // API Keys logic
+        if (btnKeys) {
+            btnKeys.addEventListener("click", () => {
+                loadApiKeys();
+                keysOverlay.classList.add("active");
+            });
+        }
+        if (keysClose) {
+            keysClose.addEventListener("click", () => keysOverlay.classList.remove("active"));
+        }
+        if (keysOverlay) {
+            keysOverlay.addEventListener("click", (e) => {
+                if (e.target === keysOverlay) keysOverlay.classList.remove("active");
+            });
+        }
+        if (btnKeysSave) {
+            btnKeysSave.addEventListener("click", saveApiKeys);
+        }
+        if (btnKeysClear) {
+            btnKeysClear.addEventListener("click", () => {
+                if (confirm("Clear all locally saved API keys?")) {
+                    apiKeys = {};
+                    localStorage.removeItem("explainer_api_keys");
+                    if (keysForm) keysForm.querySelectorAll("input").forEach(i => i.value = "");
+                    showToast("API keys cleared.", "info");
+                }
+            });
+        }
     }
 
     // ── Step Navigation ──────────────────────────────────────────────────
@@ -336,7 +444,14 @@
                 try {
                     const form = new FormData();
                     form.append("prompt", prompt);
-                    form.append("orientation", currentOrientation);
+                    const dims = currentOrientation === "portrait" ? { w: 1080, h: 1920 } : { w: 1920, h: 1080 };
+                    form.append("width", String(dims.w));
+                    form.append("height", String(dims.h));
+                    if (bulkImageProvider) form.append("provider", bulkImageProvider.value);
+                    
+                    const keyToSend = getApiKeyForProvider(bulkImageProvider?.value);
+                    if (keyToSend) form.append("api_key", keyToSend);
+
                     form.append("scene_id", s.scene_id);
 
                     const res = await fetch("/api/generate-image", { method: "POST", body: form });
@@ -474,6 +589,7 @@
             orientation: currentOrientation,
             default_voice: voiceSelect.value,
             image_source: imageSource,
+            image_provider: bulkImageProvider ? bulkImageProvider.value : "pollinations",
             render_preset: bulkRenderPreset ? bulkRenderPreset.value : "balanced",
             scenes: parsedScenes.map(s => ({
                 scene_id: s.scene_id,
@@ -487,6 +603,9 @@
                 subtitle: s.subtitle,
             })),
         };
+
+        const keyToSend = getApiKeyForProvider(bulkImageProvider?.value);
+        if (keyToSend) payload.image_api_key = keyToSend;
 
         try {
             const form = new FormData();

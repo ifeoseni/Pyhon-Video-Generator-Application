@@ -40,6 +40,12 @@
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
                     Bulk Mode
                 </a>
+                <button class="nav-btn" id="btn-keys" title="Manage API Keys">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3L15.5 7.5z" />
+                    </svg>
+                    API Keys
+                </button>
             </nav>
         </div>
     </header>
@@ -85,6 +91,14 @@
                 <div class="form-group">
                     <label class="form-label" for="bulk-voice">Default Voice</label>
                     <select class="form-select" id="bulk-voice"></select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="bulk-image-provider">Image generator</label>
+                    <select class="form-select" id="bulk-image-provider"></select>
+                    <p class="step-desc" style="margin-top: 0.35rem; margin-bottom: 0; font-size: 0.88rem">
+                        Gemini Nano Banana / Imagen need a Google AI Studio API key — see README.
+                    </p>
                 </div>
 
                 <div class="form-group">
@@ -199,7 +213,46 @@ Thank you for watching! Subscribe for more.
                 <button class="btn btn-ghost hidden" id="btn-bulk-reset">Start Over</button>
             </div>
         </section>
-    </main>
+    <!-- ─── API Keys Modal ─── -->
+    <div class="modal-overlay" id="keys-overlay">
+      <div class="modal glass" style="width: 500px">
+        <button class="modal-close" id="keys-close">&times;</button>
+        <h2>Image AI API Keys</h2>
+        <p class="modal-sub" style="margin-bottom: 1.5rem">Keys are saved <strong>locally in your browser</strong>. They are shared across Editor and Bulk modes.</p>
+        
+        <div class="keys-form" id="keys-form">
+          <div class="key-field">
+            <label>OpenAI API Key</label>
+            <input type="password" data-key="OPENAI_API_KEY" placeholder="sk-..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>Together AI Key</label>
+            <input type="password" data-key="TOGETHER_API_KEY" placeholder="Together token..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>Google / Gemini Key</label>
+            <input type="password" data-key="GEMINI_API_KEY" placeholder="AI Studio key..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>Hugging Face Token</label>
+            <input type="password" data-key="HF_TOKEN" placeholder="hf_..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>DeepAI API Key</label>
+            <input type="password" data-key="DEEPAI_API_KEY" placeholder="quickstart-..." class="form-control" />
+          </div>
+          <div class="key-field">
+            <label>Stable Horde Key</label>
+            <input type="password" data-key="STABLE_HORDE_API_KEY" placeholder="API key (optional)..." class="form-control" />
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 0.5rem">
+          <button class="btn btn-ghost" id="btn-keys-clear">Clear All</button>
+          <button class="btn btn-primary" id="btn-keys-save">Save Keys</button>
+        </div>
+      </div>
+    </div>
 
     <script src="/static/bulk.js"></script>
 </body>

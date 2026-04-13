@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 
 from audio_engine import generate_audio_from_text
-from image_engine import generate_prompt_image
+from image_engine import generate_prompt_image, list_image_providers, normalize_image_provider
 from video_engine import (
     render_video,
     ANIMATIONS,
@@ -124,6 +124,12 @@ async def api_list_orientations():
     return JSONResponse(content=items)
 
 
+@app.get("/api/image-providers")
+async def api_image_providers():
+    """Return selectable image backends (Pollinations, Stable Horde, Gemini / Nano Banana, Imagen, etc.)."""
+    return JSONResponse(content=list_image_providers())
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  SCENE ASSET ENDPOINTS (single-scene operations)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -160,8 +166,10 @@ async def api_generate_image(
     scene_id: str = Form(None),
     width: int = Form(1920),
     height: int = Form(1080),
+    provider: str = Form(None),
+    api_key: str = Form(None),
 ):
-    """Generate an AI image from a text prompt using Pollinations.ai."""
+    """Generate an AI image from a text prompt using the selected provider (see `/api/image-providers`)."""
     if not prompt or not prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt is required.")
 
@@ -171,7 +179,14 @@ async def api_generate_image(
     image_path = scene_dir / "image.jpg"
 
     try:
-        await generate_prompt_image(prompt.strip(), str(image_path), width=width, height=height)
+        await generate_prompt_image(
+            prompt.strip(),
+            str(image_path),
+            width=width,
+            height=height,
+            provider=normalize_image_provider(provider),
+            api_key=api_key,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
 
@@ -189,6 +204,8 @@ async def api_generate_image_video(
     height: int = Form(1080),
     duration: float = Form(5.0),
     animation: str = Form("ken_burns"),
+    provider: str = Form(None),
+    api_key: str = Form(None),
 ):
     """Generate an AI image then render a short motion video from it (MP4).
 
@@ -204,7 +221,14 @@ async def api_generate_image_video(
     video_path = scene_dir / "video.mp4"
 
     try:
-        await generate_prompt_image(prompt.strip(), str(image_path), width=width, height=height)
+        await generate_prompt_image(
+            prompt.strip(),
+            str(image_path),
+            width=width,
+            height=height,
+            provider=normalize_image_provider(provider),
+            api_key=api_key,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
 
@@ -576,6 +600,8 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
         orientation = bulk_data.get("orientation", "landscape")
         default_voice = bulk_data.get("default_voice", "en-US-JennyNeural")
         image_source = bulk_data.get("image_source", "ai")
+        image_provider = normalize_image_provider(bulk_data.get("image_provider"))
+        image_api_key = bulk_data.get("image_api_key")
         preset = _normalize_render_preset(bulk_data.get("render_preset"))
         use_hw_accel = bool(bulk_data.get("use_hw_accel", False))
         target_w, target_h = ORIENTATIONS.get(orientation, (1920, 1080))
@@ -620,7 +646,14 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
                 prompt = scene.get("image_prompt", "").strip()
                 if prompt:
                     image_path = scene_dir / "image.jpg"
-                    await generate_prompt_image(prompt, str(image_path), width=target_w, height=target_h)
+                    await generate_prompt_image(
+                        prompt,
+                        str(image_path),
+                        width=target_w,
+                        height=target_h,
+                        provider=image_provider,
+                        api_key=image_api_key,
+                    )
 
             pct = 35 + int((i + 1) / total * 25)
             render_jobs[job_id]["progress"] = pct
@@ -715,6 +748,7 @@ async def api_bulk_generate(
         "orientation": "landscape",
         "default_voice": "en-US-JennyNeural",
         "image_source": "ai",
+        "image_provider": "pollinations",
         "scenes": [
             {
                 "narration": "...",

@@ -14,6 +14,8 @@
   let currentOrientation = "landscape";
   let currentProjectId = null;
   let globalLogoUrl = null;
+  let imageProviders = [];
+  let apiKeys = {};
 
   // ── DOM References ───────────────────────────────────────────────────
   const sceneList = document.getElementById("scene-list");
@@ -52,6 +54,15 @@
 
   // Orientation
   const orientBtns = document.querySelectorAll(".orient-btn");
+  const imageProviderSelect = document.getElementById("image-provider-select");
+
+  // API Keys
+  const btnKeys = document.getElementById("btn-keys");
+  const keysOverlay = document.getElementById("keys-overlay");
+  const keysClose = document.getElementById("keys-close");
+  const btnKeysSave = document.getElementById("btn-keys-save");
+  const btnKeysClear = document.getElementById("btn-keys-clear");
+  const keysForm = document.getElementById("keys-form");
 
   // Toast container
   const toastContainer = document.createElement("div");
@@ -60,8 +71,73 @@
 
   // ── Init ─────────────────────────────────────────────────────────────
   async function init() {
-    await Promise.all([loadVoices(), loadAnimations(), loadTransitions()]);
+    await Promise.all([
+      loadVoices(),
+      loadAnimations(),
+      loadTransitions(),
+      loadImageProviders(),
+    ]);
+    loadApiKeys();
     bindGlobalEvents();
+  }
+
+  function loadApiKeys() {
+    try {
+      const stored = localStorage.getItem("explainer_api_keys");
+      if (stored) {
+        apiKeys = JSON.parse(stored);
+      }
+    } catch {
+      apiKeys = {};
+    }
+    // Update inputs in modal
+    if (keysForm) {
+      keysForm.querySelectorAll("input").forEach(input => {
+        const k = input.dataset.key;
+        if (apiKeys[k]) input.value = apiKeys[k];
+      });
+    }
+  }
+
+  function saveApiKeys() {
+    if (!keysForm) return;
+    const newKeys = {};
+    keysForm.querySelectorAll("input").forEach(input => {
+      const k = input.dataset.key;
+      const v = input.value.trim();
+      if (v) newKeys[k] = v;
+    });
+    apiKeys = newKeys;
+    localStorage.setItem("explainer_api_keys", JSON.stringify(apiKeys));
+    showToast("API keys saved locally.", "success");
+    keysOverlay.classList.remove("active");
+  }
+
+  async function loadImageProviders() {
+    try {
+      imageProviders = await (await fetch("/api/image-providers")).json();
+    } catch {
+      imageProviders = [];
+    }
+    if (!imageProviderSelect) return;
+    imageProviderSelect.innerHTML = "";
+    if (!imageProviders.length) {
+      const o = document.createElement("option");
+      o.value = "pollinations";
+      o.textContent = "Pollinations.ai";
+      imageProviderSelect.appendChild(o);
+      return;
+    }
+    imageProviders.forEach((p) => {
+      const o = document.createElement("option");
+      o.value = p.id;
+      o.textContent = p.name + (p.requires_api_key ? " · key" : "");
+      o.title = p.description || "";
+      imageProviderSelect.appendChild(o);
+    });
+    const saved = localStorage.getItem("explainer_image_provider");
+    if (saved && [...imageProviderSelect.options].some((x) => x.value === saved))
+      imageProviderSelect.value = saved;
   }
 
   async function loadVoices() {
@@ -91,6 +167,15 @@
   function bindGlobalEvents() {
     btnAddScene.addEventListener("click", () => addScene());
     btnRender.addEventListener("click", startRender);
+
+    if (imageProviderSelect) {
+      imageProviderSelect.addEventListener("change", () => {
+        localStorage.setItem(
+          "explainer_image_provider",
+          imageProviderSelect.value,
+        );
+      });
+    }
 
     btnGuide.addEventListener("click", () =>
       guideOverlay.classList.add("active"),
@@ -169,6 +254,35 @@
         if (logoUploadText) logoUploadText.textContent = "Upload Logo";
         btnRemoveLogo.classList.add("hidden");
         showToast("Logo removed.", "info");
+      });
+    }
+
+    // API Keys logic
+    if (btnKeys) {
+      btnKeys.addEventListener("click", () => {
+        loadApiKeys();
+        keysOverlay.classList.add("active");
+      });
+    }
+    if (keysClose) {
+      keysClose.addEventListener("click", () => keysOverlay.classList.remove("active"));
+    }
+    if (keysOverlay) {
+      keysOverlay.addEventListener("click", (e) => {
+        if (e.target === keysOverlay) keysOverlay.classList.remove("active");
+      });
+    }
+    if (btnKeysSave) {
+      btnKeysSave.addEventListener("click", saveApiKeys);
+    }
+    if (btnKeysClear) {
+      btnKeysClear.addEventListener("click", () => {
+        if (confirm("Clear all locally saved API keys?")) {
+          apiKeys = {};
+          localStorage.removeItem("explainer_api_keys");
+          keysForm.querySelectorAll("input").forEach(i => i.value = "");
+          showToast("API keys cleared.", "info");
+        }
       });
     }
   }
@@ -435,6 +549,21 @@
       form.append("prompt", prompt);
       form.append("width", dims.w);
       form.append("height", dims.h);
+      if (imageProviderSelect)
+        form.append("provider", imageProviderSelect.value);
+      
+      // Determine which key to send
+      let keyToSend = null;
+      const provider = imageProviderSelect?.value || "pollinations";
+      if (provider === "openai") keyToSend = apiKeys["OPENAI_API_KEY"];
+      else if (provider === "together") keyToSend = apiKeys["TOGETHER_API_KEY"];
+      else if (provider === "huggingface_flux") keyToSend = apiKeys["HF_TOKEN"];
+      else if (provider === "deepai") keyToSend = apiKeys["DEEPAI_API_KEY"];
+      else if (provider === "stable_horde") keyToSend = apiKeys["STABLE_HORDE_API_KEY"];
+      else if (provider.startsWith("gemini") || provider === "imagen_fast") keyToSend = apiKeys["GEMINI_API_KEY"];
+      
+      if (keyToSend) form.append("api_key", keyToSend);
+
       if (state.sceneIdServer) form.append("scene_id", state.sceneIdServer);
 
       const res = await fetch("/api/generate-image", {
@@ -677,6 +806,7 @@
       id: currentProjectId,
       name: projectNameInput.value.trim() || "Untitled Project",
       orientation: currentOrientation,
+      image_provider: imageProviderSelect ? imageProviderSelect.value : "pollinations",
       scenes: scenes.map((s) => {
         const card = document.querySelector(
           `.scene-card[data-scene-id="${s.id}"]`,
@@ -804,6 +934,15 @@
       orientBtns.forEach((b) =>
         b.classList.toggle("active", b.dataset.orient === currentOrientation),
       );
+
+      if (imageProviderSelect && proj.image_provider) {
+        if (
+          [...imageProviderSelect.options].some((o) => o.value === proj.image_provider)
+        ) {
+          imageProviderSelect.value = proj.image_provider;
+          localStorage.setItem("explainer_image_provider", proj.image_provider);
+        }
+      }
 
       for (const s of proj.scenes) addScene(s);
       projectsOverlay.classList.remove("active");

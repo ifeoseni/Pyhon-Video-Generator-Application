@@ -218,6 +218,7 @@ def save_project(project_data: dict) -> dict:
         "orientation": project_data.get("orientation", "landscape"),
         "default_voice": project_data.get("default_voice", "en-US-JennyNeural"),
         "image_source": project_data.get("image_source", "ai"),
+        "image_provider": project_data.get("image_provider", "pollinations"),
         "scenes": project_data.get("scenes", []),
     }
 

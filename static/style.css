@@ -1597,3 +1597,52 @@ body {
   font-weight: 500;
   font-family: monospace;
 }
+
+/* ── API Keys Form ── */
+.keys-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.key-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.key-field label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.key-field input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+.key-field input:focus {
+  outline: none;
+  border-color: var(--accent-violet);
+  background: rgba(167, 139, 250, 0.05) !important;
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.1);
+}
+.modal-sub {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-subtle);
+}
