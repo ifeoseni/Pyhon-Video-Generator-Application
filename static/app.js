@@ -805,7 +805,13 @@
           renderOverlay
             .querySelector(".render-spinner")
             .classList.add("hidden");
-          renderDownloadBtn.href = data.output_url;
+          
+          const projectName = projectNameInput.value.trim() || "explainer_video";
+          const customName = prompt("Enter filename for download:", projectName);
+          const finalName = customName ? customName.replace(/\.mp4$/i, "") : projectName;
+          
+          renderDownloadBtn.href = `${data.output_url}?filename=${encodeURIComponent(finalName)}`;
+          renderDownloadBtn.textContent = `Download: ${finalName}.mp4`;
           renderDownloadBtn.classList.remove("hidden");
           renderCloseBtn.classList.remove("hidden");
           showToast("Video rendered successfully!", "success");
@@ -834,9 +840,12 @@
 
   // ── Project Save ─────────────────────────────────────────────────────
   async function saveProject() {
+    const customName = prompt("Enter project name:", projectNameInput.value.trim() || "Untitled Project");
+    if (!customName) return;
+    
     const projectData = {
       id: currentProjectId,
-      name: projectNameInput.value.trim() || "Untitled Project",
+      name: customName,
       orientation: currentOrientation,
       image_provider: imageProviderSelect ? imageProviderSelect.value : "pollinations",
       scenes: scenes.map((s) => {
@@ -870,6 +879,7 @@
       if (!res.ok) throw new Error("Save failed.");
       const saved = await res.json();
       currentProjectId = saved.id;
+      projectNameInput.value = customName;
       showToast("Project saved!", "success");
     } catch (e) {
       showToast(e.message, "error");
@@ -919,12 +929,22 @@
         projectsListCont
           .querySelectorAll(".delete-project-btn")
           .forEach((btn) => {
-            btn.addEventListener("click", async () => {
-              await fetch(`/api/projects/${btn.dataset.id}`, {
-                method: "DELETE",
-              });
-              btn.closest(".project-item").remove();
-              showToast("Project deleted.", "info");
+            btn.addEventListener("click", async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const projectName = btn.closest(".project-item").querySelector(".project-item-name").textContent;
+              const confirmed = confirm(`Delete project "${projectName}" and all its files? This cannot be undone.`);
+              if (!confirmed) return;
+              try {
+                const res = await fetch(`/api/projects/${btn.dataset.id}`, {
+                  method: "DELETE",
+                });
+                if (!res.ok) throw new Error("Delete failed");
+                btn.closest(".project-item").remove();
+                showToast("Project deleted.", "info");
+              } catch (e) {
+                showToast("Failed to delete project.", "error");
+              }
             });
           });
       }

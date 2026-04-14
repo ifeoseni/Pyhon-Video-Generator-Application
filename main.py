@@ -586,15 +586,21 @@ async def api_render_status(job_id: str):
 
 
 @app.get("/api/download/{job_id}")
-async def api_download(job_id: str):
+async def api_download(job_id: str, filename: str = None):
     """Download the rendered video."""
     file_path = OUTPUT_DIR / f"{job_id}.mp4"
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Video not ready yet.")
+    
+    # Use provided filename or default
+    download_name = filename or "explainer_video.mp4"
+    if not download_name.endswith(".mp4"):
+        download_name += ".mp4"
+    
     return FileResponse(
         str(file_path),
         media_type="video/mp4",
-        filename="explainer_video.mp4",
+        filename=download_name,
     )
 
 
