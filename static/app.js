@@ -348,6 +348,7 @@
       showSubtitles: false,
       subtitleOverride: prefill.subtitle || "",
       animateUpload: true,
+      geminiSource: false,
     };
     scenes.push(state);
 
@@ -470,6 +471,15 @@
       });
     }
 
+    // Gemini watermark removal toggle
+    const geminiCb = card.querySelector(".gemini-source-cb");
+    if (geminiCb) {
+      geminiCb.checked = state.geminiSource;
+      geminiCb.addEventListener("change", () => {
+        state.geminiSource = geminiCb.checked;
+      });
+    }
+
     // Audio mute
     const muteCb = card.querySelector(".audio-mute-cb");
     muteCb.addEventListener("change", () => {
@@ -579,6 +589,10 @@
       state.sceneIdServer = data.scene_id;
       state.visualReady = true;
       state.mediaType = "image";
+      state.geminiSource = !!data.gemini_source;
+      // Sync the per-scene checkbox to match the auto-detected value
+      const geminiCb = card.querySelector(".gemini-source-cb");
+      if (geminiCb) geminiCb.checked = state.geminiSource;
       showImagePreview(card, data.image_url, state.animateUpload);
       showToast("AI image generated!", "success");
     } catch (e) {
@@ -630,6 +644,23 @@
   }
 
   // ── Preview Helpers ──────────────────────────────────────────────────
+  async function detectImageExtension(sceneId) {
+    const extensions = ['.jpg', '.jpeg', '.png', '.webp', '.bmp'];
+    for (const ext of extensions) {
+      try {
+        const res = await fetch(`/api/media/${sceneId}/image${ext}`);
+        if (res.ok) {
+          console.log(`Found image with extension: ${ext}`);
+          return ext;
+        }
+      } catch (e) {
+        console.log(`Extension ${ext} not found for scene ${sceneId}`);
+      }
+    }
+    console.log(`No image found for scene ${sceneId}, defaulting to .jpg`);
+    return '.jpg';
+  }
+
   function showImagePreview(card, url, animate = false) {
     const c = card.querySelector(".visual-preview");
     const img = card.querySelector(".preview-image");
@@ -685,6 +716,7 @@
           narration: narration,
           show_subtitles: !!s.showSubtitles,
           subtitle: s.subtitleOverride || narration,
+          gemini_source: !!s.geminiSource,
         };
       });
 
@@ -926,7 +958,10 @@
 
   async function loadProject(projId) {
     try {
+      console.log(`Loading project: ${projId}`);
       const proj = await (await fetch(`/api/projects/${projId}`)).json();
+      console.log("Project data:", proj);
+      
       clearAllScenes();
       currentProjectId = proj.id;
       projectNameInput.value = proj.name || "Untitled Project";
@@ -944,10 +979,85 @@
         }
       }
 
-      for (const s of proj.scenes) addScene(s);
+      for (const s of proj.scenes) {
+        addScene(s);
+      }
+      
+      // Small delay to ensure DOM is ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Restore media previews for loaded scenes
+      for (let i = 0; i < proj.scenes.length; i++) {
+        const s = proj.scenes[i];
+        console.log(`Processing scene ${i}:`, s);
+        
+        if (!s.scene_id) {
+          console.log(`Scene ${i} has no scene_id, skipping`);
+          continue;
+        }
+        
+        const sceneState = scenes[i];
+        const card = document.querySelector(`.scene-card[data-scene-id="${sceneState.id}"]`);
+        console.log(`Card for scene ${i}:`, card);
+        
+        if (!card) {
+          console.log(`No card found for scene ${i}`);
+          continue;
+        }
+        
+        // Restore audio
+        if (s.has_audio) {
+          console.log(`Restoring audio for scene ${i}`);
+          const audioPreview = card.querySelector(".audio-preview");
+          const audioPlayer = card.querySelector(".audio-player");
+          if (audioPreview && audioPlayer) {
+            audioPlayer.src = `/api/media/${s.scene_id}/voiceover.mp3?t=${Date.now()}`;
+            audioPreview.classList.remove("hidden");
+            console.log(`Audio restored for scene ${i}`);
+          }
+        }
+        
+        // Restore visual
+        if (s.has_visual) {
+          console.log(`Restoring visual for scene ${i}`);
+          const visualPreview = card.querySelector(".visual-preview");
+          if (!visualPreview) {
+            console.log(`No visual-preview found for scene ${i}`);
+            continue;
+          }
+          
+          if (s.media_type === "video") {
+            const videoEl = card.querySelector(".preview-video");
+            const imgEl = card.querySelector(".preview-image");
+            if (videoEl && imgEl) {
+              videoEl.src = `/api/media/${s.scene_id}/video.mp4?t=${Date.now()}`;
+              videoEl.classList.remove("hidden");
+              imgEl.classList.add("hidden");
+              visualPreview.classList.remove("hidden");
+              console.log(`Video restored for scene ${i}`);
+            }
+          } else {
+            const ext = await detectImageExtension(s.scene_id);
+            const imgEl = card.querySelector(".preview-image");
+            const videoEl = card.querySelector(".preview-video");
+            if (imgEl && videoEl) {
+              imgEl.src = `/api/media/${s.scene_id}/image${ext}?t=${Date.now()}`;
+              imgEl.classList.remove("hidden");
+              videoEl.classList.add("hidden");
+              if (s.animation !== "none") imgEl.classList.add("preview-animate");
+              visualPreview.classList.remove("hidden");
+              console.log(`Image restored for scene ${i} with extension ${ext}`);
+            }
+          }
+        }
+      }
+      
+      syncUI();
       projectsOverlay.classList.remove("active");
       showToast("Project loaded!", "success");
+      console.log("Project loaded successfully");
     } catch (e) {
+      console.error("Load project error:", e);
       showToast("Failed to load project.", "error");
     }
   }

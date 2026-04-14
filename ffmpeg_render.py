@@ -74,15 +74,61 @@ def _even(x: int) -> int:
 
 
 def _build_motion_filter(animation: str, w: int, h: int, fps: int, nframes: int) -> str:
-    """Return a simple ffmpeg filter that scales the image and trims to duration.
-
-    For now this produces a static scaled image clip. More sophisticated
-    zoom/pan can be added later.
-    """
+    """Return a simple ffmpeg filter that scales the image and trims to duration."""
     dur = max(0.01, nframes / max(1, fps))
-    # scale to exact resolution and label as [v]
     vf = f"[0:v]scale={w}:{h},format=yuv420p,setsar=1,trim=duration={dur},setpts=PTS-STARTPTS[v]"
     return vf
+
+
+def _erase_gemini_watermark_inplace(image_path: str) -> str:
+    """
+    Detect and erase the visible Gemini diamond watermark (bottom-right corner)
+    by inpainting the bright anomalous region with surrounding pixel values.
+    Returns a path to the cleaned image (writes a _dewm copy, leaves original intact).
+    """
+    import numpy as np
+    from PIL import Image as PILImage
+
+    base, ext = os.path.splitext(image_path)
+    out_path = base + "_dewm" + (ext or ".jpg")
+    if os.path.exists(out_path):
+        return out_path
+    try:
+        img = PILImage.open(image_path).convert("RGB")
+        arr = np.array(img, dtype=np.float32)
+        h, w = arr.shape[:2]
+
+        rx0 = int(w * 0.85)
+        ry0 = int(h * 0.85)
+        region = arr[ry0:, rx0:].copy()
+        region_gray = region.mean(axis=2)
+        region_mean = region_gray.mean()
+        region_std = region_gray.std()
+        threshold = region_mean + max(20.0, region_std * 1.5)
+        mask = region_gray > threshold
+
+        try:
+            from scipy.ndimage import binary_dilation
+            if mask.any():
+                mask = binary_dilation(mask, iterations=4)
+            else:
+                mask[-80:, -80:] = True
+        except ImportError:
+            if not mask.any():
+                mask[-80:, -80:] = True
+
+        for c in range(3):
+            channel = region[:, :, c]
+            sample_vals = channel[~mask]
+            fill_val = float(np.median(sample_vals)) if sample_vals.size else float(channel.mean())
+            channel[mask] = fill_val
+            region[:, :, c] = channel
+
+        arr[ry0:, rx0:] = region
+        PILImage.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(out_path, format="JPEG", quality=95)
+        return out_path
+    except Exception:
+        return image_path
 
 
 def _encode_scene(
@@ -103,7 +149,12 @@ def _encode_scene(
     video_encoder: Optional[str] = None,
     subtitle_text: Optional[str] = None,
     show_subtitle: bool = False,
+    gemini_source: bool = False,
 ) -> None:
+    # Pre-process: erase visible Gemini watermark before encoding
+    if gemini_source:
+        image_path = _erase_gemini_watermark_inplace(image_path)
+
     w, h = _even(w), _even(h)
     nframes = max(1, int(round(duration * fps)))
     vf_motion = _build_motion_filter(animation, w, h, fps, nframes)
@@ -572,6 +623,7 @@ def render_with_ffmpeg(
                     video_encoder,
                     s.get("subtitle") or s.get("text") or None,
                     bool(s.get("show_subtitles") or s.get("showSubtitle") or False),
+                    bool(s.get("gemini_source", False)),
                 )
                 futures[fut] = i
 

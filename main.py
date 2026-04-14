@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 
 from audio_engine import generate_audio_from_text
-from image_engine import generate_prompt_image, list_image_providers, normalize_image_provider
+from image_engine import generate_prompt_image, list_image_providers, normalize_image_provider, is_gemini_provider
 from video_engine import (
     render_video,
     ANIMATIONS,
@@ -177,9 +177,15 @@ async def api_generate_image(
     scene_dir = CACHE_DIR / scene_id
     scene_dir.mkdir(exist_ok=True)
     image_path = scene_dir / "image.jpg"
+    
+    # Clean up old watermark-removed cache when generating new image
+    for old_ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+        old_dewm = scene_dir / f"image_dewm{old_ext}"
+        if old_dewm.exists():
+            old_dewm.unlink()
 
     try:
-        await generate_prompt_image(
+        _, gemini = await generate_prompt_image(
             prompt.strip(),
             str(image_path),
             width=width,
@@ -193,6 +199,7 @@ async def api_generate_image(
     return JSONResponse(content={
         "scene_id": scene_id,
         "image_url": f"/api/media/{scene_id}/image.jpg",
+        "gemini_source": gemini,
     })
 
 
@@ -219,9 +226,15 @@ async def api_generate_image_video(
     scene_dir.mkdir(exist_ok=True)
     image_path = scene_dir / "image.jpg"
     video_path = scene_dir / "video.mp4"
+    
+    # Clean up old watermark-removed cache when generating new image
+    for old_ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+        old_dewm = scene_dir / f"image_dewm{old_ext}"
+        if old_dewm.exists():
+            old_dewm.unlink()
 
     try:
-        await generate_prompt_image(
+        _, gemini = await generate_prompt_image(
             prompt.strip(),
             str(image_path),
             width=width,
@@ -245,6 +258,7 @@ async def api_generate_image_video(
             "duration": float(duration),
             "volume": 1.0,
             "mute_audio": True,
+            "gemini_source": gemini,
         }
     ]
     try:
@@ -276,6 +290,11 @@ async def api_upload_media(
     if ext in allowed_image_exts:
         media_type = "image"
         save_name = f"image{ext}"
+        # Clean up old watermark-removed cache when uploading new image
+        for old_ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+            old_dewm = scene_dir / f"image_dewm{old_ext}"
+            if old_dewm.exists():
+                old_dewm.unlink()
     elif ext in allowed_video_exts:
         media_type = "video"
         save_name = f"video{ext}"
@@ -402,6 +421,7 @@ def _resolve_scenes_for_render(scenes_data: list[dict]) -> list[dict]:
             "duration": dur,
             "subtitle": s.get("subtitle") or s.get("subtitleOverride") or None,
             "show_subtitles": bool(s.get("show_subtitles") or s.get("showSubtitles")),
+            "gemini_source": bool(s.get("gemini_source", False)),
         })
     return scenes
 
@@ -646,7 +666,7 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
                 prompt = scene.get("image_prompt", "").strip()
                 if prompt:
                     image_path = scene_dir / "image.jpg"
-                    await generate_prompt_image(
+                    _, _gemini = await generate_prompt_image(
                         prompt,
                         str(image_path),
                         width=target_w,
@@ -654,6 +674,7 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
                         provider=image_provider,
                         api_key=image_api_key,
                     )
+                    scene["_gemini_source"] = _gemini
 
             pct = 35 + int((i + 1) / total * 25)
             render_jobs[job_id]["progress"] = pct
@@ -695,6 +716,7 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
                 "duration": dur,
                 "subtitle": scene.get("subtitle") or scene.get("subtitleOverride") or None,
                 "show_subtitles": bool(scene.get("show_subtitles") or scene.get("showSubtitles")),
+                "gemini_source": bool(scene.get("_gemini_source") or scene.get("gemini_source") or is_gemini_provider(image_provider)),
             })
 
         output_path = str(OUTPUT_DIR / f"{job_id}.mp4")

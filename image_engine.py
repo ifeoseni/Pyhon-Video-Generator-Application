@@ -131,6 +131,14 @@ def normalize_image_provider(name: str | None) -> str:
     return DEFAULT_IMAGE_PROVIDER
 
 
+_GEMINI_PROVIDER_IDS = {"gemini_nano_banana", "gemini_nano_banana_2", "gemini_nano_banana_pro", "imagen_fast"}
+
+
+def is_gemini_provider(provider_id: str) -> bool:
+    """Return True if the provider is a Google Gemini / Imagen backend (applies SynthID watermark)."""
+    return provider_id in _GEMINI_PROVIDER_IDS
+
+
 def _gemini_key() -> str | None:
     return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
@@ -559,14 +567,17 @@ async def generate_prompt_image(
     height: int = 1080,
     provider: str | None = None,
     api_key: str | None = None,
-) -> str:
+) -> tuple[str, bool]:
     """
     Generate an image for `prompt` into `output_path` using the selected provider.
+    Returns (output_path, is_gemini) where is_gemini=True when a Google Gemini/Imagen
+    backend was used (these images carry an invisible SynthID watermark).
     """
     pid = normalize_image_provider(provider)
     if seed is None:
         seed = random.randint(0, 2**31 - 1)
 
+    gemini = is_gemini_provider(pid)
     timeout = aiohttp.ClientTimeout(total=600)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         if pid == "pollinations":
@@ -575,7 +586,7 @@ async def generate_prompt_image(
             except Exception:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, _make_placeholder, prompt, output_path, width, height)
-            return output_path
+            return output_path, False
         
         if pid == "stable_horde" or pid == "stable_horde_anon":
             await _generate_stable_horde(session, prompt, output_path, width, height, api_key=api_key)
@@ -601,4 +612,5 @@ async def generate_prompt_image(
             except Exception:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, _make_placeholder, prompt, output_path, width, height)
-    return output_path
+            return output_path, False
+    return output_path, gemini

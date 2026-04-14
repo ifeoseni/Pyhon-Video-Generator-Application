@@ -377,6 +377,68 @@ def _make_subtitle_clip(text: str, target_w: int, duration: float, font_size: in
     return clip
 
 
+def _remove_synthid_watermark(image_path: str) -> str:
+    """
+    Remove the visible Gemini watermark (diamond/logo shape, typically bottom-right)
+    by detecting the bright anomalous region and inpainting it with surrounding pixels.
+    Saves a processed copy and returns its path.
+    """
+    from PIL import Image as PILImage
+    import numpy as np
+
+    base, ext = os.path.splitext(image_path)
+    out_path = base + "_dewm" + (ext or ".jpg")
+    if os.path.exists(out_path):
+        return out_path
+    try:
+        img = PILImage.open(image_path).convert("RGB")
+        arr = np.array(img, dtype=np.float32)
+        h, w = arr.shape[:2]
+
+        # The Gemini watermark is a small bright diamond/sparkle in the bottom-right.
+        # Search the bottom-right 15% x 15% region for it.
+        rx0 = int(w * 0.85)
+        ry0 = int(h * 0.85)
+        region = arr[ry0:, rx0:].copy()
+
+        # Compute local mean brightness of the region
+        region_gray = region.mean(axis=2)
+        region_mean = region_gray.mean()
+        region_std = region_gray.std()
+
+        # Pixels significantly brighter than the local mean are the watermark
+        threshold = region_mean + max(20.0, region_std * 1.5)
+        mask = region_gray > threshold
+
+        if mask.any():
+            # Expand mask slightly (dilate by 4px) to cover edges cleanly
+            from scipy.ndimage import binary_dilation
+            mask = binary_dilation(mask, iterations=4)
+        else:
+            # Fallback: always erase a fixed 80x80 patch at the very bottom-right corner
+            mask = np.zeros(region_gray.shape, dtype=bool)
+            mask[-80:, -80:] = True
+
+        # Inpaint: replace masked pixels with the median of a border ring around the mask
+        rh, rw = region.shape[:2]
+        for c in range(3):
+            channel = region[:, :, c]
+            # Sample from unmasked pixels in the same region
+            sample_vals = channel[~mask]
+            if sample_vals.size == 0:
+                sample_vals = channel.ravel()
+            fill_val = float(np.median(sample_vals))
+            channel[mask] = fill_val
+            region[:, :, c] = channel
+
+        arr[ry0:, rx0:] = region
+        result = np.clip(arr, 0, 255).astype(np.uint8)
+        PILImage.fromarray(result).save(out_path, format="JPEG", quality=95)
+        return out_path
+    except Exception:
+        return image_path
+
+
 # ── Scene Builder ─────────────────────────────────────────────────────────
 
 def build_scene_clip(
@@ -415,6 +477,10 @@ def build_scene_clip(
     media_path = scene["media_path"]
     media_type = scene.get("media_type", "image")
     animation = scene.get("animation", "ken_burns")
+
+    # Disrupt SynthID watermark for Gemini/Imagen images on the MoviePy path
+    if media_type != "video" and bool(scene.get("gemini_source", False)):
+        media_path = _remove_synthid_watermark(media_path)
 
     if media_type == "video":
         clip = VideoFileClip(media_path)
@@ -461,11 +527,13 @@ def _apply_transition(clip_a, clip_b, transition: str, trans_dur: float = 0.7):
 
     if transition == "crossfade":
         clip_b = clip_b.with_effects([vfx.CrossFadeIn(trans_dur)])
+        clip_b = clip_b.without_audio()
         return [clip_a, clip_b]
 
     if transition == "fade_black":
         clip_a = clip_a.with_effects([vfx.CrossFadeOut(trans_dur)])
         clip_b = clip_b.with_effects([vfx.CrossFadeIn(trans_dur)])
+        clip_b = clip_b.without_audio()
         return [clip_a, clip_b]
 
     if transition == "slide_left":
@@ -474,6 +542,7 @@ def _apply_transition(clip_a, clip_b, transition: str, trans_dur: float = 0.7):
             progress = min(t / trans_dur, 1.0) if trans_dur > 0 else 1.0
             return (int(w * (1 - progress)), 0)
         clip_b_sliding = clip_b.with_position(slide_pos).with_start(clip_a.duration - trans_dur)
+        clip_b_sliding = clip_b_sliding.without_audio()
         composite = CompositeVideoClip([clip_a, clip_b_sliding], size=(clip_a.w, clip_a.h))
         composite = composite.with_duration(clip_a.duration)
         remaining = clip_b.subclipped(trans_dur) if clip_b.duration > trans_dur else None
@@ -487,6 +556,7 @@ def _apply_transition(clip_a, clip_b, transition: str, trans_dur: float = 0.7):
             progress = min(t / trans_dur, 1.0) if trans_dur > 0 else 1.0
             return (int(-w * (1 - progress)), 0)
         clip_b_sliding = clip_b.with_position(slide_pos).with_start(clip_a.duration - trans_dur)
+        clip_b_sliding = clip_b_sliding.without_audio()
         composite = CompositeVideoClip([clip_a, clip_b_sliding], size=(clip_a.w, clip_a.h))
         composite = composite.with_duration(clip_a.duration)
         remaining = clip_b.subclipped(trans_dur) if clip_b.duration > trans_dur else None
@@ -496,10 +566,12 @@ def _apply_transition(clip_a, clip_b, transition: str, trans_dur: float = 0.7):
 
     if transition == "wipe_down":
         clip_b = clip_b.with_effects([vfx.CrossFadeIn(trans_dur)])
+        clip_b = clip_b.without_audio()
         return [clip_a, clip_b]
 
     # Fallback: crossfade
     clip_b = clip_b.with_effects([vfx.CrossFadeIn(trans_dur)])
+    clip_b = clip_b.without_audio()
     return [clip_a, clip_b]
 
 
@@ -594,19 +666,13 @@ def render_video(
             curr = clips[i]
             if transition == "none":
                 composed.append(curr)
-            elif transition in ("slide_left", "slide_right", "wipe_down"):
+            else:
                 parts = _apply_transition(prev, curr, transition, trans_dur)
-                # replace last with the first returned part and append any remaining parts
                 composed[-1] = parts[0]
                 if len(parts) > 1:
                     composed.extend(parts[1:])
-            else:
-                # Use crossfade style (works for crossfade, fade_black and other simple fades)
-                need_negative_padding = True
-                prev = prev.with_effects([vfx.CrossFadeOut(trans_dur)])
-                curr = curr.with_effects([vfx.CrossFadeIn(trans_dur)])
-                composed[-1] = prev
-                composed.append(curr)
+                if transition not in ("slide_left", "slide_right", "wipe_down"):
+                    need_negative_padding = True
 
         final = concatenate_videoclips(
             composed,
