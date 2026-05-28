@@ -16,6 +16,23 @@ import concurrent.futures
 import urllib.parse
 from typing import Callable, Optional
 
+# Try to discover ffmpeg from imageio_ffmpeg if not already present on PATH
+if shutil.which("ffmpeg") is None:
+    try:
+        import imageio_ffmpeg
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        cache_dir = os.path.join(base_dir, "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        target_ffmpeg = os.path.join(cache_dir, "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+        if not os.path.exists(target_ffmpeg):
+            bin_path = imageio_ffmpeg.get_ffmpeg_exe()
+            if bin_path and os.path.exists(bin_path):
+                shutil.copy2(bin_path, target_ffmpeg)
+        if os.path.exists(target_ffmpeg):
+            os.environ["PATH"] = cache_dir + os.pathsep + os.environ.get("PATH", "")
+    except Exception:
+        pass
+
 # xfade transition names supported by libavfilter
 _XFADE_TRANSITION = {
     "crossfade": "fade",
@@ -150,6 +167,8 @@ def _encode_scene(
     subtitle_text: Optional[str] = None,
     show_subtitle: bool = False,
     gemini_source: bool = False,
+    audio_start: float = 0.0,
+    audio_end: Optional[float] = None,
 ) -> None:
     # Pre-process: erase visible Gemini watermark before encoding
     if gemini_source:
@@ -178,7 +197,7 @@ def _encode_scene(
         df = []
         df.append(f"text='{txt}'")
         if fontfile:
-            ff_escaped = fontfile.replace(":", "\\:")
+            ff_escaped = fontfile.replace(":", "\\\\:") if os.name == "nt" else fontfile.replace(":", "\\:")
             df.append(f"fontfile={ff_escaped}")
         df.append("fontsize=48")
         df.append("fontcolor=white")
@@ -235,6 +254,14 @@ def _encode_scene(
         vol = max(0.0, min(3.0, float(volume)))
         af = f"[1:a]volume={vol},aformat=sample_fmts=fltp:channel_layouts=stereo:sample_rates=44100[a]"
         enc = video_encoder or "libx264"
+        
+        # Audio seek & trim parameters
+        audio_args = []
+        if audio_start > 0.0:
+            audio_args.extend(["-ss", f"{audio_start:.6f}"])
+        if audio_end is not None:
+            audio_args.extend(["-t", f"{duration:.6f}"])
+
         cmd = [
             "ffmpeg",
             "-y",
@@ -244,8 +271,13 @@ def _encode_scene(
             str(fps),
             "-i",
             image_path,
-            "-i",
-            audio_path,
+        ]
+        
+        # Insert audio input seeking arguments
+        cmd.extend(audio_args)
+        cmd.extend(["-i", audio_path])
+        
+        cmd.extend([
             "-filter_complex",
             f"{vf_motion};{af}",
             "-map",
@@ -271,7 +303,7 @@ def _encode_scene(
             "yuv420p",
             "-movflags",
             "+faststart",
-        ]
+        ])
     cmd.append(out_mp4)
 
     r = subprocess.run(
@@ -315,6 +347,7 @@ def _merge_scenes(
     logo_path: Optional[str] = None,
     logo_position: str = "bottom-right",
     target_w: int = 1920,
+    project_audio_path: Optional[str] = None,
 ) -> None:
     """Merge per-scene segments (already encoded) into a final MP4.
 
@@ -347,6 +380,8 @@ def _merge_scenes(
         cmd = ["ffmpeg", "-y", "-i", scene_files[0]]
         fc_parts = []
         map_label = "0:v"
+        map_audio_label = "0:a"
+        audio_idx = 1
 
         if show and subtitle:
             txt = str(subtitle).replace("'", "\\'").replace(":", "\\:").replace(",", "\\,")
@@ -354,7 +389,7 @@ def _merge_scenes(
             df = []
             df.append(f"text='{txt}'")
             if fontfile:
-                ff_escaped = fontfile.replace(":", "\\:")
+                ff_escaped = fontfile.replace(":", "\\\\:") if os.name == "nt" else fontfile.replace(":", "\\:")
                 df.append(f"fontfile={ff_escaped}")
             df.append(f"fontsize={fontsize}")
             df.append("fontcolor=white")
@@ -368,6 +403,7 @@ def _merge_scenes(
         if logo_path and os.path.isfile(logo_path):
             # add logo as an extra input
             cmd.extend(["-i", logo_path])
+            audio_idx += 1
             x, y = {
                 "bottom-right": ("main_w-overlay_w-10", "main_h-overlay_h-10"),
                 "bottom-left": ("10", "main_h-overlay_h-10"),
@@ -385,6 +421,11 @@ def _merge_scenes(
             fc_parts.append(f"{src_label}[logo_s]overlay={x}:{y}[vout]")
             map_label = "[vout]"
 
+        if project_audio_path and os.path.isfile(project_audio_path):
+            cmd.extend(["-i", project_audio_path])
+            fc_parts.append(f"[0:a][{audio_idx - 1}:a]amix=inputs=2:duration=first:dropout_transition=3[amix]")
+            map_audio_label = "[amix]"
+
         if not fc_parts:
             # nothing to do — copy
             shutil.copy2(scene_files[0], output_path)
@@ -398,7 +439,7 @@ def _merge_scenes(
             "-map",
             map_label,
             "-map",
-            "0:a",
+            map_audio_label,
             "-c:v",
             enc,
             "-preset",
@@ -450,6 +491,11 @@ def _merge_scenes(
     else:
         logo_idx = None
 
+    project_audio_idx = None
+    if project_audio_path and os.path.isfile(project_audio_path):
+        cmd.extend(["-i", project_audio_path])
+        project_audio_idx = n + (1 if logo_idx is not None else 0)
+
     parts: list[str] = []
     v_out, a_out = "0:v", "0:a"
     cum = durations[0]
@@ -478,9 +524,13 @@ def _merge_scenes(
         else:
             tr = _XFADE_TRANSITION.get(trans, "fade")
             off = max(0.0, cum - trans_dur)
+            # Video xfade with proper duration
             parts.append(
-                f"[{v_out}][{vi}]xfade=transition={tr}:duration={trans_dur}:offset={off}[v{i}x];"
-                f"[{a_out}][{ai}]acrossfade=d={trans_dur}[a{i}x]"
+                f"[{v_out}][{vi}]xfade=transition={tr}:duration={trans_dur}:offset={off}[v{i}x]"
+            )
+            # Audio: concatenate sequentially (no crossfade) to avoid overlap
+            parts.append(
+                f"[{a_out}][{ai}]concat=n=2:v=0:a=1[a{i}x]"
             )
             v_out, a_out = f"v{i}x", f"a{i}x"
             cum += durations[i] - trans_dur
@@ -490,6 +540,7 @@ def _merge_scenes(
     # Subtitles are burned into each per-segment file during encoding (_encode_scene).
     # Skip adding drawtext filters at merge-time to avoid timing/complexity issues.
     map_v_label = v_out
+    map_a_label = a_out
 
     # If logo was provided, append overlay step
     if logo_idx is not None:
@@ -504,6 +555,10 @@ def _merge_scenes(
         fc = fc + f";[{logo_idx}:v]scale={logo_w}:-2[logo_s];[{map_v_label}][logo_s]overlay={x}:{y}[vout]"
         map_v_label = "vout"
 
+    if project_audio_idx is not None:
+        fc = fc + f";[{map_a_label}][{project_audio_idx}:a]amix=inputs=2:duration=first:dropout_transition=3[a_mix]"
+        map_a_label = "a_mix"
+
     enc = video_encoder or "libx264"
     cmd.extend([
         "-filter_complex",
@@ -511,7 +566,7 @@ def _merge_scenes(
         "-map",
         f"[{map_v_label}]",
         "-map",
-        f"[{a_out}]",
+        f"[{map_a_label}]",
         "-c:v",
         enc,
         "-preset",
@@ -624,6 +679,8 @@ def render_with_ffmpeg(
                     s.get("subtitle") or s.get("text") or None,
                     bool(s.get("show_subtitles") or s.get("showSubtitle") or False),
                     bool(s.get("gemini_source", False)),
+                    float(s.get("audio_start", 0.0)),
+                    s.get("audio_end"),
                 )
                 futures[fut] = i
 

@@ -324,16 +324,23 @@ async def _generate_stable_horde(
         if not job_id:
             raise RuntimeError(f"Stable Horde: no job id in response: {body[:400]}")
 
-    deadline = asyncio.get_event_loop().time() + 420.0
+    # Use the running loop's monotonic clock to avoid deprecation warnings on Python 3.10+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 420.0
     check_url = f"https://stablehorde.net/api/v2/generate/check/{job_id}"
+    status_url = f"https://stablehorde.net/api/v2/generate/status/{job_id}"
+    horde_headers = {"Client-Agent": headers["Client-Agent"], "apikey": api_key}
     img_url = None
-    while asyncio.get_event_loop().time() < deadline:
-        async with session.get(check_url, headers={"Client-Agent": headers["Client-Agent"], "apikey": api_key}) as cr:
+    while loop.time() < deadline:
+        async with session.get(check_url, headers=horde_headers) as cr:
             cj = await cr.json(content_type=None)
         if cj.get("faulted"):
             raise RuntimeError(f"Stable Horde job faulted: {cj.get('errors') or cj}")
         if cj.get("done"):
-            gens = cj.get("generations") or []
+            # /check only returns status flags; image URLs live on /status
+            async with session.get(status_url, headers=horde_headers) as sr:
+                sj = await sr.json(content_type=None)
+            gens = sj.get("generations") or []
             if gens and gens[0].get("img"):
                 img_url = gens[0]["img"]
             break
@@ -555,9 +562,22 @@ async def _generate_together(
     except Exception as e:
          raise RuntimeError(f"Together AI API error: {str(e)}")
 
-    img_b64 = data["data"][0]["b64_json"]
-    raw = base64.b64decode(img_b64)
-    _save_raw_image_bytes_as_jpeg(raw, output_path)
+    # Together AI can return either b64_json or a URL depending on the model.
+    first = (data.get("data") or [{}])[0]
+    img_b64 = first.get("b64_json")
+    img_url_resp = first.get("url")
+    if img_b64:
+        raw = base64.b64decode(img_b64)
+        _save_raw_image_bytes_as_jpeg(raw, output_path)
+    elif img_url_resp:
+        async with aiohttp.ClientSession() as dl_session:
+            async with dl_session.get(img_url_resp) as ir:
+                if ir.status != 200:
+                    raise RuntimeError(f"Together AI image download failed: HTTP {ir.status}")
+                raw = await ir.read()
+        _save_raw_image_bytes_as_jpeg(raw, output_path)
+    else:
+        raise RuntimeError(f"Together AI: no image data in response: {str(data)[:400]}")
 
 async def generate_prompt_image(
     prompt: str,

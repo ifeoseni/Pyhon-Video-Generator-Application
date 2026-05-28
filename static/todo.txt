@@ -1,0 +1,1 @@
+let us select duration for the global audio too(trimable as well)

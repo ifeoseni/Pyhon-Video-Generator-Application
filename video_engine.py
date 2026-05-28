@@ -1,9 +1,41 @@
 from __future__ import annotations
 
 import os
-import numpy as np
+import sys
+import types
 import logging
+import numpy as np
 from proglog import ProgressBarLogger
+
+# ── IPython stub ─────────────────────────────────────────────────────────────
+# MoviePy 2.x imports IPython unconditionally at module load time
+# (moviepy/__init__.py → display_in_notebook → IPython → stack_data).
+# On Python 3.13 this import chain can raise KeyboardInterrupt via the frozen
+# bootstrap loader, crashing server startup before a single request is served.
+# We inject a minimal stub so moviepy finds a cached module and skips the
+# real IPython import entirely.  The stub only needs to satisfy the one symbol
+# moviepy uses at import time: IPython.display.HTML.
+if "IPython" not in sys.modules:
+    _ipy_stub = types.ModuleType("IPython")
+    _ipy_display_stub = types.ModuleType("IPython.display")
+
+    # MoviePy does `class HTML2(HTML)` so the stub must be a real class, not a lambda
+    class _HTMLStub:  # noqa: D101
+        def __init__(self, data=""):
+            self.data = data
+        def __add__(self, other):
+            return _HTMLStub(self.data + getattr(other, "data", ""))
+
+    class _ImageStub:  # noqa: D101
+        def __init__(self, data=None, **kwargs):
+            self.data = data
+
+    _ipy_display_stub.HTML = _HTMLStub
+    _ipy_display_stub.Image = _ImageStub
+    _ipy_stub.display = _ipy_display_stub
+    sys.modules["IPython"] = _ipy_stub
+    sys.modules["IPython.display"] = _ipy_display_stub
+
 
 from ffmpeg_render import ffmpeg_available, scenes_eligible_for_ffmpeg, render_with_ffmpeg
 from moviepy import (
@@ -13,8 +45,10 @@ from moviepy import (
     ColorClip,
     concatenate_videoclips,
     CompositeVideoClip,
+    CompositeAudioClip,
     vfx,
 )
+
 
 # ── Available Animations & Transitions ────────────────────────────────────
 
@@ -470,6 +504,20 @@ def build_scene_clip(
     audio_path = scene.get("audio_path")
     if audio_path and os.path.exists(audio_path) and not mute_audio:
         audio = AudioFileClip(audio_path)
+        audio_start = float(scene.get("audio_start", 0.0))
+        audio_end = scene.get("audio_end")
+        
+        # Validate trim bounds
+        audio_start = max(0.0, min(audio_start, audio.duration))
+        if audio_end is None:
+            audio_end = audio.duration
+        else:
+            audio_end = float(audio_end)
+        audio_end = max(audio_start, min(audio_end, audio.duration))
+        
+        if audio_start > 0.0 or audio_end < audio.duration:
+            audio = audio.subclipped(audio_start, audio_end)
+            
         duration = audio.duration
         if volume != 1.0:
             audio = audio.with_effects([vfx.MultiplyVolume(volume)])
@@ -502,18 +550,19 @@ def build_scene_clip(
     # Overlay subtitles when requested
     try:
         if bool(scene.get("show_subtitles")) and scene.get("subtitle"):
-                subtext = str(scene.get("subtitle") or "")
-                if subtext.strip():
-                    orig = clip
-                    subclip = _make_subtitle_clip(subtext, target_w, clip.duration)
-                    comp = CompositeVideoClip([orig, subclip], size=(target_w, target_h))
-                    # Preserve audio from the original clip when compositing
-                    if getattr(orig, "audio", None):
-                        comp = comp.with_audio(orig.audio)
-                    clip = comp.with_duration(orig.duration)
+            subtext = str(scene.get("subtitle") or "")
+            if subtext.strip():
+                orig = clip
+                subclip = _make_subtitle_clip(subtext, target_w, clip.duration)
+                comp = CompositeVideoClip([orig, subclip], size=(target_w, target_h))
+                # Preserve audio from the original clip when compositing
+                if getattr(orig, "audio", None):
+                    comp = comp.with_audio(orig.audio)
+                clip = comp.with_duration(orig.duration)
     except Exception:
         # Non-fatal: if subtitle rendering fails, continue without subtitles
         pass
+
 
     return clip
 
@@ -521,58 +570,100 @@ def build_scene_clip(
 # ── Transition Helpers ────────────────────────────────────────────────────
 
 def _apply_transition(clip_a, clip_b, transition: str, trans_dur: float = 0.7):
-    """Apply a transition between two clips, returning a composed list."""
+    """Apply a transition between two clips. Returns a single composite clip.
+
+    Audio from BOTH clips is preserved: clip_a audio starts at t=0 and
+    clip_b audio starts at the overlap point so every scene's voiceover
+    survives in the final output.
+    """
     if transition == "none":
-        return [clip_a, clip_b]
+        return None  # Signal to concatenate directly
 
+    audio_a = getattr(clip_a, "audio", None)
+    audio_b = getattr(clip_b, "audio", None)
+
+    clip_a_no_audio = clip_a.without_audio() if audio_a else clip_a
+    clip_b_no_audio = clip_b.without_audio() if audio_b else clip_b
+
+    # Transition duration capped at clip_a's remaining time
+    actual_trans_dur = min(trans_dur, clip_a.duration)
+    overlap_start = clip_a.duration - actual_trans_dur
+    total_dur = clip_a.duration + clip_b.duration - actual_trans_dur
+
+    # ── Merge audio from both clips ──────────────────────────────────────
+    # clip_a audio plays from t=0; clip_b audio starts at overlap_start so
+    # it lines up with when clip_b visually appears.
+    composite_audio = None
+    try:
+        if audio_a and audio_b:
+            audio_b_shifted = audio_b.with_start(overlap_start)
+            composite_audio = CompositeAudioClip(
+                [audio_a, audio_b_shifted]
+            ).with_duration(total_dur)
+        elif audio_a:
+            composite_audio = audio_a.with_duration(
+                min(audio_a.duration, total_dur)
+            )
+        elif audio_b:
+            composite_audio = audio_b.with_start(overlap_start)
+    except Exception:
+        logging.warning("CompositeAudioClip failed in transition, using clip_a audio only")
+        composite_audio = audio_a
+
+    # ── Build video composite ─────────────────────────────────────────────
     if transition == "crossfade":
-        clip_b = clip_b.with_effects([vfx.CrossFadeIn(trans_dur)])
-        clip_b = clip_b.without_audio()
-        return [clip_a, clip_b]
+        clip_b_visual = clip_b_no_audio.with_effects([vfx.CrossFadeIn(actual_trans_dur)])
+        composite = CompositeVideoClip(
+            [clip_a_no_audio, clip_b_visual.with_start(overlap_start)],
+            size=(clip_a.w, clip_a.h)
+        ).with_duration(total_dur)
 
-    if transition == "fade_black":
-        clip_a = clip_a.with_effects([vfx.CrossFadeOut(trans_dur)])
-        clip_b = clip_b.with_effects([vfx.CrossFadeIn(trans_dur)])
-        clip_b = clip_b.without_audio()
-        return [clip_a, clip_b]
+    elif transition == "fade_black":
+        clip_a_visual = clip_a_no_audio.with_effects([vfx.CrossFadeOut(actual_trans_dur)])
+        clip_b_visual = clip_b_no_audio.with_effects([vfx.CrossFadeIn(actual_trans_dur)])
+        composite = CompositeVideoClip(
+            [clip_a_visual, clip_b_visual.with_start(overlap_start)],
+            size=(clip_a.w, clip_a.h)
+        ).with_duration(total_dur)
 
-    if transition == "slide_left":
-        w = clip_b.w
-        def slide_pos(t):
-            progress = min(t / trans_dur, 1.0) if trans_dur > 0 else 1.0
+    elif transition == "slide_left":
+        w = clip_b_no_audio.w
+        def slide_pos_l(t):
+            progress = min(t / actual_trans_dur, 1.0) if actual_trans_dur > 0 else 1.0
             return (int(w * (1 - progress)), 0)
-        clip_b_sliding = clip_b.with_position(slide_pos).with_start(clip_a.duration - trans_dur)
-        clip_b_sliding = clip_b_sliding.without_audio()
-        composite = CompositeVideoClip([clip_a, clip_b_sliding], size=(clip_a.w, clip_a.h))
-        composite = composite.with_duration(clip_a.duration)
-        remaining = clip_b.subclipped(trans_dur) if clip_b.duration > trans_dur else None
-        if remaining:
-            return [composite, remaining]
-        return [composite]
+        clip_b_sliding = clip_b_no_audio.with_position(slide_pos_l).with_start(overlap_start)
+        composite = CompositeVideoClip(
+            [clip_a_no_audio, clip_b_sliding], size=(clip_a.w, clip_a.h)
+        ).with_duration(total_dur)
 
-    if transition == "slide_right":
-        w = clip_b.w
-        def slide_pos(t):
-            progress = min(t / trans_dur, 1.0) if trans_dur > 0 else 1.0
+    elif transition == "slide_right":
+        w = clip_b_no_audio.w
+        def slide_pos_r(t):
+            progress = min(t / actual_trans_dur, 1.0) if actual_trans_dur > 0 else 1.0
             return (int(-w * (1 - progress)), 0)
-        clip_b_sliding = clip_b.with_position(slide_pos).with_start(clip_a.duration - trans_dur)
-        clip_b_sliding = clip_b_sliding.without_audio()
-        composite = CompositeVideoClip([clip_a, clip_b_sliding], size=(clip_a.w, clip_a.h))
-        composite = composite.with_duration(clip_a.duration)
-        remaining = clip_b.subclipped(trans_dur) if clip_b.duration > trans_dur else None
-        if remaining:
-            return [composite, remaining]
-        return [composite]
+        clip_b_sliding = clip_b_no_audio.with_position(slide_pos_r).with_start(overlap_start)
+        composite = CompositeVideoClip(
+            [clip_a_no_audio, clip_b_sliding], size=(clip_a.w, clip_a.h)
+        ).with_duration(total_dur)
 
-    if transition == "wipe_down":
-        clip_b = clip_b.with_effects([vfx.CrossFadeIn(trans_dur)])
-        clip_b = clip_b.without_audio()
-        return [clip_a, clip_b]
+    elif transition == "wipe_down":
+        clip_b_visual = clip_b_no_audio.with_effects([vfx.CrossFadeIn(actual_trans_dur)])
+        composite = CompositeVideoClip(
+            [clip_a_no_audio, clip_b_visual.with_start(overlap_start)],
+            size=(clip_a.w, clip_a.h)
+        ).with_duration(total_dur)
 
-    # Fallback: crossfade
-    clip_b = clip_b.with_effects([vfx.CrossFadeIn(trans_dur)])
-    clip_b = clip_b.without_audio()
-    return [clip_a, clip_b]
+    else:
+        # Fallback: crossfade
+        clip_b_visual = clip_b_no_audio.with_effects([vfx.CrossFadeIn(actual_trans_dur)])
+        composite = CompositeVideoClip(
+            [clip_a_no_audio, clip_b_visual.with_start(overlap_start)],
+            size=(clip_a.w, clip_a.h)
+        ).with_duration(total_dur)
+
+    if composite_audio is not None:
+        composite = composite.with_audio(composite_audio)
+    return composite
 
 
 # ── Main Render Function ─────────────────────────────────────────────────
@@ -587,6 +678,7 @@ def render_video(
     use_hw_accel: bool = False,
     logo_path: str | None = None,
     logo_position: str = "bottom-right",
+    project_audio_path: str | None = None,
 ) -> str:
     """
     Render the full explainer video from a list of scenes.
@@ -634,7 +726,7 @@ def render_video(
                 logo_position=logo_position,
             )
         except Exception:
-            pass
+            logging.warning("FFmpeg render path failed; falling back to MoviePy", exc_info=True)
     oversample = float(pconf["oversample"])
     thread_n = min(16, max(2, (os.cpu_count() or 4) * 2))
 
@@ -659,26 +751,20 @@ def render_video(
         final = clips[0]
     else:
         composed = [clips[0]]
-        need_negative_padding = False
         for i in range(1, len(clips)):
             transition = scenes[i].get("transition", "crossfade")
             prev = composed[-1]
             curr = clips[i]
-            if transition == "none":
+            trans_result = _apply_transition(prev, curr, transition, trans_dur)
+            if trans_result is None:
+                # No transition, concatenate directly
                 composed.append(curr)
             else:
-                parts = _apply_transition(prev, curr, transition, trans_dur)
-                composed[-1] = parts[0]
-                if len(parts) > 1:
-                    composed.extend(parts[1:])
-                if transition not in ("slide_left", "slide_right", "wipe_down"):
-                    need_negative_padding = True
+                # Replace last clip with transition composite
+                composed[-1] = trans_result
 
-        final = concatenate_videoclips(
-            composed,
-            method="compose",
-            padding=-trans_dur if need_negative_padding else 0,
-        )
+        # Concatenate all clips sequentially
+        final = concatenate_videoclips(composed, method="chain")
 
     if progress_callback:
         progress_callback(36)
@@ -721,6 +807,23 @@ def render_video(
             final = comp
         except Exception:
             logging.exception("Failed to overlay logo via MoviePy")
+
+    if project_audio_path and os.path.isfile(project_audio_path):
+        try:
+            from moviepy import AudioFileClip, CompositeAudioClip, vfx
+            proj_audio = AudioFileClip(project_audio_path)
+            if proj_audio.duration < final.duration:
+                proj_audio = proj_audio.with_effects([vfx.Loop(duration=final.duration)])
+            else:
+                proj_audio = proj_audio.subclipped(0, final.duration)
+                
+            if getattr(final, "audio", None):
+                final_audio = CompositeAudioClip([final.audio, proj_audio])
+                final = final.with_audio(final_audio)
+            else:
+                final = final.with_audio(proj_audio)
+        except Exception:
+            logging.exception("Failed to overlay project audio via MoviePy")
 
     final.write_videofile(
         output_path,

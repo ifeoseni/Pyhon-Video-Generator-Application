@@ -14,6 +14,7 @@
   let currentOrientation = "landscape";
   let currentProjectId = null;
   let globalLogoUrl = null;
+  let globalProjectAudioUrl = null;
   let imageProviders = [];
   let apiKeys = {};
 
@@ -29,6 +30,10 @@
   const logoPositionSelect = document.getElementById("logo-position-select");
   const btnRemoveLogo = document.getElementById("btn-remove-logo");
   const logoUploadText = document.getElementById("logo-upload-text");
+
+  const projectAudioInput = document.getElementById("project-audio-input");
+  const btnRemoveProjectAudio = document.getElementById("btn-remove-project-audio");
+  const projectAudioText = document.getElementById("project-audio-text");
 
   // Guide
   const btnGuide = document.getElementById("btn-guide");
@@ -166,6 +171,10 @@
 
   function bindGlobalEvents() {
     btnAddScene.addEventListener("click", () => addScene());
+    const btnAddSceneBottom = document.getElementById("btn-add-scene-bottom");
+    if (btnAddSceneBottom) {
+      btnAddSceneBottom.addEventListener("click", () => addScene());
+    }
     btnRender.addEventListener("click", startRender);
 
     if (imageProviderSelect) {
@@ -254,6 +263,44 @@
         if (logoUploadText) logoUploadText.textContent = "Upload Logo";
         btnRemoveLogo.classList.add("hidden");
         showToast("Logo removed.", "info");
+      });
+    }
+
+    if (projectAudioInput) {
+      projectAudioInput.addEventListener("change", async () => {
+        if (!projectAudioInput.files || projectAudioInput.files.length === 0)
+          return;
+        const f = projectAudioInput.files[0];
+        const fd = new FormData();
+        fd.append("file", f);
+        try {
+          showToast("Uploading project audio…", "info");
+          const res = await fetch("/api/upload-project-audio", {
+            method: "POST",
+            body: fd,
+          });
+          if (!res.ok) throw new Error("Project audio upload failed");
+          const data = await res.json();
+          globalProjectAudioUrl = data.url;
+          if (projectAudioText) projectAudioText.textContent = "Audio Ready";
+          if (btnRemoveProjectAudio) btnRemoveProjectAudio.classList.remove("hidden");
+          showToast(
+            "Project audio uploaded! It will be applied to the final render.",
+            "success",
+          );
+        } catch (e) {
+          showToast(e.message || "Project audio upload failed.", "error");
+        }
+      });
+    }
+
+    if (btnRemoveProjectAudio) {
+      btnRemoveProjectAudio.addEventListener("click", () => {
+        globalProjectAudioUrl = null;
+        projectAudioInput.value = "";
+        if (projectAudioText) projectAudioText.textContent = "Project Audio";
+        btnRemoveProjectAudio.classList.add("hidden");
+        showToast("Project audio removed.", "info");
       });
     }
 
@@ -349,6 +396,8 @@
       subtitleOverride: prefill.subtitle || "",
       animateUpload: true,
       geminiSource: false,
+      audioStart: prefill.audio_start ?? 0.0,
+      audioEnd: prefill.audio_end ?? null,
     };
     scenes.push(state);
 
@@ -495,6 +544,80 @@
       state.volume = pct / 100;
       volumeLabel.textContent = `${pct}%`;
     });
+
+    // Audio Trimming & Cropping
+    const audioPlayer = card.querySelector(".audio-player");
+    const startInput = card.querySelector(".audio-start-input");
+    const endInput = card.querySelector(".audio-end-input");
+    const resetBtn = card.querySelector(".btn-trim-reset");
+    const durLabel = card.querySelector(".trim-info-duration");
+
+    const setupTrimControls = () => {
+      const duration = audioPlayer.duration;
+      if (!duration || isNaN(duration)) return;
+
+      startInput.max = duration;
+      endInput.max = duration;
+
+      if (state.audioStart == null) {
+        state.audioStart = 0.0;
+      }
+      if (state.audioEnd == null || state.audioEnd > duration) {
+        state.audioEnd = duration;
+      }
+
+      startInput.value = state.audioStart.toFixed(1);
+      endInput.value = state.audioEnd.toFixed(1);
+
+      const updateDurLabel = () => {
+        const trimDur = state.audioEnd - state.audioStart;
+        durLabel.textContent = `Crop: ${trimDur.toFixed(1)}s (Total: ${duration.toFixed(1)}s)`;
+      };
+
+      updateDurLabel();
+
+      startInput.oninput = startInput.onchange = () => {
+        let val = parseFloat(startInput.value) || 0.0;
+        val = Math.max(0.0, Math.min(val, state.audioEnd || duration));
+        state.audioStart = val;
+        updateDurLabel();
+      };
+
+      endInput.oninput = endInput.onchange = () => {
+        let val = parseFloat(endInput.value);
+        if (isNaN(val)) val = duration;
+        val = Math.max(state.audioStart, Math.min(val, duration));
+        state.audioEnd = val;
+        updateDurLabel();
+      };
+
+      resetBtn.onclick = (e) => {
+        e.preventDefault();
+        state.audioStart = 0.0;
+        state.audioEnd = duration;
+        startInput.value = "0.0";
+        endInput.value = duration.toFixed(1);
+        updateDurLabel();
+        showToast("Trim boundaries reset.", "info");
+      };
+
+      audioPlayer.addEventListener("timeupdate", () => {
+        if (audioPlayer.currentTime > state.audioEnd) {
+          audioPlayer.pause();
+          audioPlayer.currentTime = state.audioStart;
+        }
+      });
+      audioPlayer.addEventListener("play", () => {
+        if (audioPlayer.currentTime < state.audioStart || audioPlayer.currentTime >= state.audioEnd) {
+          audioPlayer.currentTime = state.audioStart;
+        }
+      });
+    };
+
+    audioPlayer.addEventListener("loadedmetadata", setupTrimControls);
+    if (audioPlayer.readyState >= 1) {
+      setupTrimControls();
+    }
   }
 
   // ── Generate Audio ───────────────────────────────────────────────────
@@ -717,6 +840,8 @@
           show_subtitles: !!s.showSubtitles,
           subtitle: s.subtitleOverride || narration,
           gemini_source: !!s.geminiSource,
+          audio_start: s.audioStart,
+          audio_end: s.audioEnd,
         };
       });
 
@@ -745,6 +870,7 @@
         document.getElementById("render-preset").value,
       );
       if (globalLogoUrl) form.append("logo_url", globalLogoUrl);
+      if (globalProjectAudioUrl) form.append("project_audio_url", globalProjectAudioUrl);
       if (logoPositionSelect)
         form.append(
           "logo_position",
@@ -805,13 +931,23 @@
           renderOverlay
             .querySelector(".render-spinner")
             .classList.add("hidden");
-          
-          const projectName = projectNameInput.value.trim() || "explainer_video";
-          const customName = prompt("Enter filename for download:", projectName);
-          const finalName = customName ? customName.replace(/\.mp4$/i, "") : projectName;
-          
-          renderDownloadBtn.href = `${data.output_url}?filename=${encodeURIComponent(finalName)}`;
-          renderDownloadBtn.textContent = `Download: ${finalName}.mp4`;
+
+          // Derive a safe filename from the project name — no blocking prompt()
+          const rawName = projectNameInput.value.trim() || "explainer_video";
+          const safeName = rawName
+            .replace(/[<>:"/\\|?*\x00-\x1f]/g, "")
+            .replace(/\s+/g, "_")
+            .trim() || "explainer_video";
+
+          renderDownloadBtn.href = `${data.output_url}?filename=${encodeURIComponent(safeName)}`;
+          renderDownloadBtn.setAttribute("download", `${safeName}.mp4`);
+          renderDownloadBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download ${safeName}.mp4`;
           renderDownloadBtn.classList.remove("hidden");
           renderCloseBtn.classList.remove("hidden");
           showToast("Video rendered successfully!", "success");
@@ -865,6 +1001,8 @@
           media_type: s.mediaType,
           has_audio: s.audioReady,
           has_visual: s.visualReady,
+          audio_start: s.audioStart,
+          audio_end: s.audioEnd,
         };
       }),
     };

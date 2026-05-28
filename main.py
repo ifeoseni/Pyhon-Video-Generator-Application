@@ -290,17 +290,25 @@ async def api_upload_media(
     if ext in allowed_image_exts:
         media_type = "image"
         save_name = f"image{ext}"
-        # Clean up old watermark-removed cache when uploading new image
+        # Clean up ALL old image files and watermark copies when uploading new image
         for old_ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+            old_file = scene_dir / f"image{old_ext}"
+            if old_file.exists():
+                old_file.unlink()
             old_dewm = scene_dir / f"image_dewm{old_ext}"
             if old_dewm.exists():
                 old_dewm.unlink()
     elif ext in allowed_video_exts:
         media_type = "video"
         save_name = f"video{ext}"
+        # Clean up old video files
+        for old_ext in {".mp4", ".webm", ".avi", ".mov", ".mkv"}:
+            old_file = scene_dir / f"video{old_ext}"
+            if old_file.exists():
+                old_file.unlink()
     elif ext in allowed_audio_exts:
         media_type = "audio"
-        save_name = f"voiceover{ext}"  # Saving as voiceover.ext so it gets picked up automatically by audio loaders
+        save_name = f"voiceover{ext}"
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
@@ -330,6 +338,25 @@ async def api_upload_logo(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Unsupported logo file type.")
 
     fname = f"logo_{uuid.uuid4().hex}{ext}"
+    save_path = uploads_dir / fname
+    content = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(content)
+
+    return JSONResponse(content={"url": f"/static/uploads/{fname}"})
+
+
+@app.post("/api/upload-project-audio")
+async def api_upload_project_audio(file: UploadFile = File(...)):
+    """Upload a global project audio track."""
+    uploads_dir = STATIC_DIR / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
+
+    ext = Path(file.filename).suffix.lower() or ".mp3"
+    if ext not in {".mp3", ".wav", ".m4a", ".ogg"}:
+        raise HTTPException(status_code=400, detail="Unsupported audio file type.")
+
+    fname = f"project_audio_{uuid.uuid4().hex}{ext}"
     save_path = uploads_dir / fname
     content = await file.read()
     with open(save_path, "wb") as f:
@@ -405,10 +432,39 @@ def _resolve_scenes_for_render(scenes_data: list[dict]) -> list[dict]:
             raise FileNotFoundError(f"No audio found for scene {i + 1} (id: {s['scene_id']})")
 
         dur = 5.0
+        audio_start = float(s.get("audio_start", 0.0))
+        audio_end = s.get("audio_end")
+
         if audio_path and not mute_audio:
             ac = AudioFileClip(str(audio_path))
-            dur = float(ac.duration)
+            total_dur = float(ac.duration)
+            
+            # Bound and validate trim parameters
+            audio_start = max(0.0, min(audio_start, total_dur))
+            if audio_end is None:
+                audio_end = total_dur
+            else:
+                audio_end = float(audio_end)
+            audio_end = max(audio_start, min(audio_end, total_dur))
+            
+            dur = audio_end - audio_start
             ac.close()
+        elif actual_type == "video":
+            from moviepy import VideoFileClip
+            vc = VideoFileClip(str(media_path))
+            total_dur = float(vc.duration)
+            vc.close()
+            
+            audio_start = max(0.0, min(audio_start, total_dur))
+            if audio_end is None:
+                audio_end = total_dur
+            else:
+                audio_end = float(audio_end)
+            audio_end = max(audio_start, min(audio_end, total_dur))
+            dur = audio_end - audio_start
+        else:
+            audio_start = 0.0
+            audio_end = None
 
         scenes.append({
             "media_path": media_path,
@@ -419,6 +475,8 @@ def _resolve_scenes_for_render(scenes_data: list[dict]) -> list[dict]:
             "volume": float(s.get("volume", 1.0)),
             "mute_audio": mute_audio,
             "duration": dur,
+            "audio_start": audio_start,
+            "audio_end": audio_end,
             "subtitle": s.get("subtitle") or s.get("subtitleOverride") or None,
             "show_subtitles": bool(s.get("show_subtitles") or s.get("showSubtitles")),
             "gemini_source": bool(s.get("gemini_source", False)),
@@ -426,7 +484,7 @@ def _resolve_scenes_for_render(scenes_data: list[dict]) -> list[dict]:
     return scenes
 
 
-def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str, use_hw_accel: bool = False, logo_url: Optional[str] = None, logo_position: str = "bottom-right"):
+def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str, use_hw_accel: bool = False, logo_url: Optional[str] = None, logo_position: str = "bottom-right", project_audio_url: Optional[str] = None):
     """Background task: renders the video and updates job status."""
     try:
         render_jobs[job_id]["status"] = "rendering"
@@ -457,6 +515,23 @@ def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str, 
         except Exception:
             logo_path_fs = None
 
+        project_audio_path_fs = None
+        try:
+            if project_audio_url:
+                lu = project_audio_url.lstrip("/")
+                if project_audio_url.startswith("/static/") or project_audio_url.startswith("static/"):
+                    p = BASE_DIR / lu
+                    if p.exists():
+                        project_audio_path_fs = str(p.resolve()).replace("\\", "/")
+                elif os.path.isabs(project_audio_url) and os.path.exists(project_audio_url):
+                    project_audio_path_fs = project_audio_url
+                else:
+                    p = BASE_DIR / project_audio_url
+                    if p.exists():
+                        project_audio_path_fs = str(p.resolve()).replace("\\", "/")
+        except Exception:
+            project_audio_path_fs = None
+
         render_video(
             scenes,
             output_path,
@@ -466,6 +541,7 @@ def _run_render(job_id: str, scenes: list[dict], orientation: str, preset: str, 
             use_hw_accel=use_hw_accel,
             logo_path=logo_path_fs,
             logo_position=logo_position,
+            project_audio_path=project_audio_path_fs,
         )
 
         render_jobs[job_id]["status"] = "done"
@@ -486,6 +562,7 @@ async def api_render_video(
     use_hw_accel: bool = Form(False),
     logo_url: Optional[str] = Form(None),
     logo_position: str = Form("bottom-right"),
+    project_audio_url: Optional[str] = Form(None),
 ):
     """
     Start a video render job.
@@ -540,7 +617,7 @@ async def api_render_video(
         "render_preset": preset,
     }
 
-    background_tasks.add_task(_run_render, job_id, resolved, orientation, preset, use_hw_accel, logo_url, logo_position)
+    background_tasks.add_task(_run_render, job_id, resolved, orientation, preset, use_hw_accel, logo_url, logo_position, project_audio_url)
 
     return JSONResponse(
         content={
@@ -705,11 +782,39 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
                 raise FileNotFoundError(f"No media found for scene {i + 1}")
 
             mute_audio = scene.get("mute_audio", False)
+            audio_start = float(scene.get("audio_start", 0.0))
+            audio_end = scene.get("audio_end")
             dur = 5.0
+            
             if audio_path and not mute_audio:
                 ac = AudioFileClip(str(audio_path))
-                dur = float(ac.duration)
+                total_dur = float(ac.duration)
+                
+                audio_start = max(0.0, min(audio_start, total_dur))
+                if audio_end is None:
+                    audio_end = total_dur
+                else:
+                    audio_end = float(audio_end)
+                audio_end = max(audio_start, min(audio_end, total_dur))
+                
+                dur = audio_end - audio_start
                 ac.close()
+            elif actual_type == "video":
+                from moviepy import VideoFileClip
+                vc = VideoFileClip(str(media_path))
+                total_dur = float(vc.duration)
+                vc.close()
+                
+                audio_start = max(0.0, min(audio_start, total_dur))
+                if audio_end is None:
+                    audio_end = total_dur
+                else:
+                    audio_end = float(audio_end)
+                audio_end = max(audio_start, min(audio_end, total_dur))
+                dur = audio_end - audio_start
+            else:
+                audio_start = 0.0
+                audio_end = None
 
             render_scenes.append({
                 "media_path": media_path,
@@ -720,6 +825,8 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
                 "volume": float(scene.get("volume", 1.0)),
                 "mute_audio": mute_audio,
                 "duration": dur,
+                "audio_start": audio_start,
+                "audio_end": audio_end,
                 "subtitle": scene.get("subtitle") or scene.get("subtitleOverride") or None,
                 "show_subtitles": bool(scene.get("show_subtitles") or scene.get("showSubtitles")),
                 "gemini_source": bool(scene.get("_gemini_source") or scene.get("gemini_source") or is_gemini_provider(image_provider)),
@@ -739,6 +846,24 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
         )
         render_jobs[job_id]["render_preset"] = preset
 
+        project_audio_url = bulk_data.get("project_audio_url")
+        project_audio_path_fs = None
+        try:
+            if project_audio_url:
+                lu = project_audio_url.lstrip("/")
+                if project_audio_url.startswith("/static/") or project_audio_url.startswith("static/"):
+                    p = BASE_DIR / lu
+                    if p.exists():
+                        project_audio_path_fs = str(p.resolve()).replace("\\", "/")
+                elif os.path.isabs(project_audio_url) and os.path.exists(project_audio_url):
+                    project_audio_path_fs = project_audio_url
+                else:
+                    p = BASE_DIR / project_audio_url
+                    if p.exists():
+                        project_audio_path_fs = str(p.resolve()).replace("\\", "/")
+        except Exception:
+            project_audio_path_fs = None
+
         def progress_cb(pct):
             render_jobs[job_id]["progress"] = 60 + int(pct * 0.4)
 
@@ -749,6 +874,7 @@ async def _bulk_generate_pipeline(job_id: str, bulk_data: dict):
             preset=preset,
             progress_callback=progress_cb,
             use_hw_accel=use_hw_accel,
+            project_audio_path=project_audio_path_fs,
         )
 
         render_jobs[job_id]["status"] = "done"
@@ -855,10 +981,28 @@ async def api_save_project(payload: str = Form(...)):
 
 @app.delete("/api/projects/{project_id}")
 async def api_delete_project(project_id: str):
-    """Delete a project."""
+    """Delete a project and clean up its associated scene cache directories."""
+    import shutil
+
+    # Load before deleting so we know which scene dirs to purge
+    project = load_project(project_id)
     deleted = delete_project(project_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Project not found.")
+
+    # Remove orphaned cache directories for each scene in the deleted project
+    if project:
+        for scene in project.get("scenes", []):
+            sid = scene.get("scene_id")
+            if sid:
+                scene_dir = CACHE_DIR / sid
+                if scene_dir.exists():
+                    try:
+                        shutil.rmtree(scene_dir)
+                        logging.info("Cleaned up cache dir for scene %s", sid)
+                    except Exception:
+                        logging.exception("Failed to clean up cache for scene %s", sid)
+
     return JSONResponse(content={"deleted": True})
 
 
